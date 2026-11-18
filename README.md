@@ -1,13 +1,15 @@
 # fujoma
 
-3D-Browserspiel im Stil von Animal Crossing mit Echtzeit-Multiplayer.
+A 3D browser game in the style of Animal Crossing with real-time multiplayer.
 
-## Architektur
-- `client/` – Godot 4 Projekt (Web-Export, WebAssembly)
-- `server/` – Cloudflare Worker + Durable Objects (TypeScript), eine Insel pro Durable Object, Speicherstände in D1
-- `web/` – statisch ausgelieferte Dateien auf Vercel (später der Godot-Web-Export)
+## Architecture
+- `client/` – Godot 4 project (web export, WebAssembly)
+- `server/` – Cloudflare Worker + Durable Objects (TypeScript); one island per Durable Object, save data in D1
+- `web/` – static files served by Vercel (later the Godot web export)
 
-## Entscheidungen
-- Gastzugang zuerst, Konten später
-- Platzhalter-Assets, später Asset-Packs oder eigene Modelle
-- MVP: Echtzeit-Events (Ostern, Halloween), Sammeln und Crafting, Inselgestaltung, Wirtschaft und NPCs
+## Decisions
+- Guest access first, accounts later
+- Placeholder assets for now, later asset packs or custom models
+- MVP: real-time events (Easter, Halloween), gathering and crafting, island decoration, economy and NPCs
+
+See [docs/phase-plan.md](docs/phase-plan.md) for the roadmap.
