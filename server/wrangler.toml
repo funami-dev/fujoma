@@ -6,6 +6,14 @@ compatibility_date = "2025-01-01"
 name = "ISLAND"
 class_name = "Island"
 
+[[durable_objects.bindings]]
+name = "PROFILE"
+class_name = "Profile"
+
 [[migrations]]
 tag = "v1"
 new_sqlite_classes = ["Island"]
+
+[[migrations]]
+tag = "v2"
+new_sqlite_classes = ["Profile"]

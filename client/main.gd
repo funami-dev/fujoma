@@ -12,6 +12,7 @@ const EMOTES := ["wave", "happy", "sad", "dance"]
 var island_code := "main"
 var server_url := PROD_SERVER
 var guest_id := ""
+var guest_secret := ""
 var guest_name := ""
 var guest_color := Color.WHITE
 
@@ -27,6 +28,8 @@ var status_label: Label
 var chat_log: RichTextLabel
 var chat_input: LineEdit
 var joystick: Joystick
+var hud: Hud
+var nodes: Dictionary = {}  # id -> WorldNode
 var _touch_dir := Vector2.ZERO
 
 
@@ -45,6 +48,7 @@ func _ready() -> void:
 	net.connected.connect(_on_connected)
 	net.disconnected.connect(_on_disconnected)
 	net.message.connect(_on_message)
+	net.rejected.connect(_on_rejected)
 	status_label.text = "connecting..."
 	net.open("%s/island/%s/ws" % [server_url, island_code])
 
@@ -66,6 +70,11 @@ func _load_or_create_guest() -> void:
 	var cfg := ConfigFile.new()
 	cfg.load("user://guest.cfg")
 	guest_id = cfg.get_value("guest", "id", "")
+	guest_secret = cfg.get_value("guest", "secret", "")
+	if guest_secret == "":
+		guest_secret = _random_token(24)
+		cfg.set_value("guest", "secret", guest_secret)
+		cfg.save("user://guest.cfg")
 	if guest_id == "":
 		guest_id = "%08x%08x" % [randi(), randi()]
 		cfg.set_value("guest", "id", guest_id)
@@ -80,6 +89,14 @@ func _load_or_create_guest() -> void:
 			guest_name = (name_param as String).substr(0, 16)
 
 
+func _random_token(length: int) -> String:
+	var chars := "abcdefghijklmnopqrstuvwxyz0123456789"
+	var out := ""
+	for i in length:
+		out += chars[randi() % chars.length()]
+	return out
+
+
 # ---------------------------------------------------------------- setup
 
 func _setup_input() -> void:
@@ -90,6 +107,8 @@ func _setup_input() -> void:
 		"move_back": [KEY_S, KEY_DOWN],
 		"cam_left": [KEY_Q],
 		"cam_right": [KEY_E],
+		"act": [KEY_F],
+		"craft": [KEY_C],
 	}
 	for action: String in bindings:
 		InputMap.add_action(action)
@@ -120,31 +139,6 @@ func _build_world() -> void:
 	var water := PlaneMesh.new()
 	water.size = Vector2(400, 400)
 	_add_mesh(water, Color(0.2, 0.5, 0.8), Vector3(0, -0.6, 0))
-
-	# Decorative trees at fixed positions (same on every client).
-	var rng := RandomNumberGenerator.new()
-	rng.seed = 1234
-	for i in 28:
-		var angle := rng.randf() * TAU
-		var dist := sqrt(rng.randf()) * (ISLAND_RADIUS - 4.0)
-		if dist < 5.0:
-			continue
-		var tree := Node3D.new()
-		tree.position = Vector3(cos(angle) * dist, 0, sin(angle) * dist)
-		add_child(tree)
-		var trunk := MeshInstance3D.new()
-		trunk.mesh = _cylinder(0.3, 2.0)
-		trunk.material_override = _mat(Color(0.5, 0.33, 0.2))
-		trunk.position.y = 1.0
-		tree.add_child(trunk)
-		var crown := MeshInstance3D.new()
-		var sphere := SphereMesh.new()
-		sphere.radius = 1.5
-		sphere.height = 3.0
-		crown.mesh = sphere
-		crown.material_override = _mat(Color(0.2, 0.55, 0.25))
-		crown.position.y = 3.2
-		tree.add_child(crown)
 
 	camera = Camera3D.new()
 	camera.fov = 60.0
@@ -220,6 +214,11 @@ func _build_ui() -> void:
 		b.pressed.connect(_send_emote.bind(kind))
 		emote_box.add_child(b)
 
+	hud = Hud.new()
+	add_child(hud)
+	hud.act_pressed.connect(_act)
+	hud.craft_requested.connect(func(recipe: String) -> void: net.send({"t": "craft", "recipe": recipe}))
+
 	if DisplayServer.is_touchscreen_available():
 		joystick = Joystick.new()
 		joystick.anchor_top = 1.0
@@ -235,8 +234,18 @@ func _build_ui() -> void:
 
 func _on_connected() -> void:
 	status_label.text = "island: %s" % island_code
-	net.send({"t": "join", "id": guest_id, "name": guest_name, "color": "#" + guest_color.to_html(false)})
+	net.send({"t": "join", "id": guest_id, "secret": guest_secret, "name": guest_name, "color": "#" + guest_color.to_html(false)})
 	_last_sent = Vector3.INF
+
+
+func _on_rejected(code: int) -> void:
+	match code:
+		4000:
+			status_label.text = "This guest is open in another tab. Close it and reload."
+		4003:
+			status_label.text = "This guest id belongs to another device. Clear site data to start fresh."
+		_:
+			status_label.text = "Connection refused (%d)" % code
 
 
 func _on_disconnected() -> void:
@@ -250,7 +259,19 @@ func _on_message(d: Dictionary) -> void:
 		"welcome":
 			for p: Dictionary in d.get("players", []):
 				_add_remote(p)
+			_clear_nodes()
+			for n: Dictionary in d.get("nodes", []):
+				_add_node(n)
+			hud.set_inventory(d.get("inv", {}))
 			_update_status()
+		"inv":
+			hud.set_inventory(d.get("inv", {}))
+		"toast":
+			hud.show_toast(d.get("text", ""))
+		"node":
+			var wn: WorldNode = nodes.get(d.get("id", ""))
+			if wn:
+				wn.set_ready_in(int(d.get("ready_in", 0)))
 		"joined":
 			_add_remote(d["p"])
 			_log("%s joined" % d["p"].get("name", "?"))
@@ -277,6 +298,20 @@ func _on_message(d: Dictionary) -> void:
 				me.emote(d["e"])
 			elif remotes.has(d.get("id", "")):
 				remotes[d["id"]].emote(d["e"])
+
+
+func _clear_nodes() -> void:
+	for n: WorldNode in nodes.values():
+		n.queue_free()
+	nodes.clear()
+
+
+func _add_node(n: Dictionary) -> void:
+	var wn := WorldNode.new()
+	wn.position = Vector3(n["x"], 0, n["z"])
+	add_child(wn)
+	wn.setup(n["id"], n["k"], int(n["ready_in"]))
+	nodes[n["id"]] = wn
 
 
 func _add_remote(p: Dictionary) -> void:
@@ -327,9 +362,40 @@ func _send_emote(kind: String) -> void:
 # ---------------------------------------------------------------- loop
 
 func _unhandled_key_input(event: InputEvent) -> void:
-	if event is InputEventKey and event.pressed and event.keycode == KEY_ENTER:
+	if not (event is InputEventKey and event.pressed and not event.echo):
+		return
+	if event.keycode == KEY_ENTER:
 		chat_input.grab_focus()
 		get_viewport().set_input_as_handled()
+	elif event.physical_keycode == KEY_F:
+		_act()
+	elif event.physical_keycode == KEY_C:
+		hud.toggle_craft()
+
+
+func _nearest_node() -> WorldNode:
+	var best: WorldNode = null
+	var best_d := Defs.INTERACT_RANGE
+	for n: WorldNode in nodes.values():
+		var d := n.position.distance_to(me.position)
+		if d < best_d:
+			best_d = d
+			best = n
+	return best
+
+
+func _on_shore() -> bool:
+	return Vector2(me.position.x, me.position.z).length() >= Defs.SHORE_DISTANCE
+
+
+func _act() -> void:
+	var n := _nearest_node()
+	if n:
+		net.send({"t": "interact", "id": n.node_id})
+	elif _on_shore():
+		net.send({"t": "fish"})
+	else:
+		hud.show_toast("Nothing nearby")
 
 
 func _process(delta: float) -> void:
@@ -353,6 +419,9 @@ func _process(delta: float) -> void:
 			flat = flat.normalized() * ISLAND_RADIUS
 			me.position = Vector3(flat.x, 0, flat.y)
 		me.rotation.y = lerp_angle(me.rotation.y, atan2(-dir.x, -dir.z), minf(1.0, 14.0 * delta))
+		_push_out_of_nodes()
+
+	_update_prompt()
 
 	_send_timer += delta
 	if _send_timer >= POS_SEND_INTERVAL:
@@ -370,3 +439,28 @@ func _process(delta: float) -> void:
 	var focus := me.position
 	camera.position = focus + CAMERA_OFFSET.rotated(Vector3.UP, cam_yaw)
 	camera.look_at(focus + Vector3(0, 1, 0), Vector3.UP)
+
+
+func _push_out_of_nodes() -> void:
+	for n: WorldNode in nodes.values():
+		var offset := me.position - n.position
+		offset.y = 0
+		var min_dist := n.collision_radius() + 0.4
+		if offset.length() < min_dist:
+			if offset.length() < 0.001:
+				offset = Vector3(1, 0, 0)
+			me.position = n.position + offset.normalized() * min_dist
+
+
+func _update_prompt() -> void:
+	var n := _nearest_node()
+	if n:
+		var what := "pick fruit / gather wood" if n.kind == "tree" else "take stone"
+		if n.is_ready() or n.kind == "tree":
+			hud.set_prompt("F: %s" % what)
+		else:
+			hud.set_prompt("(%s: nothing right now)" % n.kind)
+	elif _on_shore():
+		hud.set_prompt("F: fish" if hud.has_item("fishing_rod") else "Shore: craft a fishing rod to fish")
+	else:
+		hud.set_prompt("")
