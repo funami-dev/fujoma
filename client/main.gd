@@ -30,6 +30,11 @@ var chat_input: LineEdit
 var joystick: Joystick
 var hud: Hud
 var nodes: Dictionary = {}  # id -> WorldNode
+var houses: Dictionary = {}  # owner id -> HouseView
+var decor_nodes: Dictionary = {}  # decor id -> DecorNode
+var build_rot := 0
+var ghost: DecorNode
+var _ghost_key := ""
 var _touch_dir := Vector2.ZERO
 
 
@@ -217,6 +222,10 @@ func _build_ui() -> void:
 	hud = Hud.new()
 	add_child(hud)
 	hud.act_pressed.connect(_act)
+	hud.place_pressed.connect(_place)
+	hud.rotate_pressed.connect(_rotate)
+	hud.pickup_pressed.connect(_pickup)
+	hud.build_item_selected.connect(_on_build_item_selected)
 	hud.craft_requested.connect(func(recipe: String) -> void: net.send({"t": "craft", "recipe": recipe}))
 
 	if DisplayServer.is_touchscreen_available():
@@ -262,12 +271,30 @@ func _on_message(d: Dictionary) -> void:
 			_clear_nodes()
 			for n: Dictionary in d.get("nodes", []):
 				_add_node(n)
+			for h: Dictionary in d.get("houses", []):
+				_add_house(h)
+			_clear_decor()
+			for dd: Dictionary in d.get("decor", []):
+				_add_decor(dd)
 			hud.set_inventory(d.get("inv", {}))
 			_update_status()
 		"inv":
 			hud.set_inventory(d.get("inv", {}))
 		"toast":
 			hud.show_toast(d.get("text", ""))
+		"house":
+			_add_house(d["h"])
+		"decor_add":
+			_add_decor(d["d"])
+		"decor_remove":
+			var dn: DecorNode = decor_nodes.get(d.get("id", ""))
+			if dn:
+				dn.queue_free()
+				decor_nodes.erase(d["id"])
+		"decor_rot":
+			var dr: DecorNode = decor_nodes.get(d.get("id", ""))
+			if dr:
+				dr.set_rot(int(d.get("rot", 0)))
 		"node":
 			var wn: WorldNode = nodes.get(d.get("id", ""))
 			if wn:
@@ -287,6 +314,9 @@ func _on_message(d: Dictionary) -> void:
 			if a:
 				a.target_position = Vector3(d["x"], 0, d["z"])
 				a.target_yaw = d["ry"]
+				if d.get("s", false):
+					a.position = a.target_position
+					a.rotation.y = a.target_yaw
 		"chat":
 			_log("%s: %s" % [d.get("name", "?"), d.get("text", "")])
 			if d.get("id", "") == guest_id:
@@ -312,6 +342,157 @@ func _add_node(n: Dictionary) -> void:
 	add_child(wn)
 	wn.setup(n["id"], n["k"], int(n["ready_in"]))
 	nodes[n["id"]] = wn
+
+
+func _add_house(h: Dictionary) -> void:
+	var owner_id: String = h["owner"]
+	if houses.has(owner_id):
+		(houses[owner_id] as HouseView).set_owner_name(h["name"])
+		return
+	var hv := HouseView.new()
+	hv.setup(int(h["slot"]), owner_id, h["name"], self)
+	houses[owner_id] = hv
+
+
+func _clear_decor() -> void:
+	for dn: DecorNode in decor_nodes.values():
+		dn.queue_free()
+	decor_nodes.clear()
+
+
+func _add_decor(d: Dictionary) -> void:
+	if decor_nodes.has(d["id"]):
+		return
+	var dn := DecorNode.new()
+	add_child(dn)
+	dn.setup(d["id"], d["item"], int(d["rot"]), int(d["gx"]), int(d["gz"]))
+	decor_nodes[d["id"]] = dn
+
+
+func _my_house() -> HouseView:
+	return houses.get(guest_id)
+
+
+func _in_room() -> bool:
+	return me.position.x >= Defs.ROOM_REGION_X
+
+
+## Cell in front of the player where furniture would be placed.
+func _target_cell() -> Vector2i:
+	var forward := Vector3(-sin(me.rotation.y), 0, -cos(me.rotation.y))
+	var p := me.position + forward * 1.8
+	return Vector2i(roundi(p.x), roundi(p.z))
+
+
+## Client-side guess whether a cell is valid. The server decides for real.
+func _cell_valid(cell: Vector2i) -> bool:
+	for dn: DecorNode in decor_nodes.values():
+		if dn.gx == cell.x and dn.gz == cell.y:
+			return false
+	if cell.x >= Defs.ROOM_REGION_X:
+		var mine := _my_house()
+		if mine == null or Defs.room_slot_at(cell.x) != mine.slot:
+			return false
+		var c := Defs.room_center(mine.slot)
+		return absf(cell.x - c.x) <= Defs.ROOM_PLACE_HALF and absf(cell.y) <= Defs.ROOM_PLACE_HALF
+	if Vector2(cell).length() > Defs.ISLAND_RADIUS - 1.5:
+		return false
+	for n: WorldNode in nodes.values():
+		if Vector2(n.position.x, n.position.z).distance_to(Vector2(cell)) < 1.8:
+			return false
+	for slot in Defs.MAX_HOUSES:
+		var hc := Defs.house_center(slot)
+		var dc := Defs.door_outside(slot)
+		if Vector2(hc.x, hc.z).distance_to(Vector2(cell)) < 4.5 or Vector2(dc.x, dc.z).distance_to(Vector2(cell)) < 2.5:
+			return false
+	return true
+
+
+func _on_build_item_selected(item: String) -> void:
+	build_rot = 0
+	_ghost_key = ""
+	if item == "" and ghost:
+		ghost.queue_free()
+		ghost = null
+
+
+func _update_ghost() -> void:
+	if hud == null or not hud.is_building():
+		if ghost:
+			ghost.queue_free()
+			ghost = null
+		_ghost_key = ""
+		return
+	var cell := _target_cell()
+	var key := "%s|%d" % [hud.selected_item, build_rot]
+	if ghost == null or key != _ghost_key:
+		if ghost:
+			ghost.queue_free()
+		ghost = DecorNode.new()
+		add_child(ghost)
+		ghost.setup("ghost", hud.selected_item, build_rot, cell.x, cell.y)
+		_ghost_key = key
+	ghost.position = Vector3(cell.x, 0, cell.y)
+	ghost.set_ghost(_cell_valid(cell))
+
+
+func _place() -> void:
+	if not hud.is_building():
+		hud.show_toast("Open Build (B) and pick an item first")
+		return
+	var cell := _target_cell()
+	net.send({"t": "place", "item": hud.selected_item, "gx": cell.x, "gz": cell.y, "rot": build_rot})
+
+
+func _nearest_decor() -> DecorNode:
+	var best: DecorNode = null
+	var best_d := 3.0
+	for dn: DecorNode in decor_nodes.values():
+		var d := dn.position.distance_to(me.position)
+		if d < best_d:
+			best_d = d
+			best = dn
+	return best
+
+
+func _rotate() -> void:
+	if hud.is_building():
+		build_rot = (build_rot + 1) % 4
+		return
+	var dn := _nearest_decor()
+	if dn:
+		net.send({"t": "rotate", "id": dn.decor_id})
+
+
+func _pickup() -> void:
+	var dn := _nearest_decor()
+	if dn:
+		net.send({"t": "pickup", "id": dn.decor_id})
+	else:
+		hud.show_toast("Nothing to pick up nearby")
+
+
+## Teleports the local player and tells everyone to snap instead of gliding.
+func _teleport(pos: Vector3) -> void:
+	me.position = pos
+	_last_sent = Vector3(pos.x, me.rotation.y, pos.z)
+	net.send({"t": "pos", "x": pos.x, "z": pos.z, "ry": me.rotation.y, "s": true})
+
+
+## Returns the door action available at the player's position: {"text": ..., "go": Callable} or empty.
+func _door_option() -> Dictionary:
+	if _in_room():
+		var slot := Defs.room_slot_at(me.position.x)
+		if me.position.distance_to(Defs.room_exit_spot(slot)) < 2.2:
+			return {"text": "F: leave the house", "go": func() -> void: _teleport(Defs.door_outside(slot))}
+		return {}
+	for hv: HouseView in houses.values():
+		if me.position.distance_to(Defs.door_outside(hv.slot)) < 2.5:
+			return {
+				"text": "F: enter %s's house" % hv.owner_name,
+				"go": func() -> void: _teleport(Defs.room_center(hv.slot) + Vector3(0, 0, 4.0)),
+			}
+	return {}
 
 
 func _add_remote(p: Dictionary) -> void:
@@ -371,6 +552,16 @@ func _unhandled_key_input(event: InputEvent) -> void:
 		_act()
 	elif event.physical_keycode == KEY_C:
 		hud.toggle_craft()
+	elif event.physical_keycode == KEY_B:
+		hud.toggle_build()
+	elif event.physical_keycode == KEY_P:
+		_place()
+	elif event.physical_keycode == KEY_R:
+		_rotate()
+	elif event.physical_keycode == KEY_G:
+		_pickup()
+	elif event.keycode == KEY_ESCAPE:
+		hud.select_item("")
 
 
 func _nearest_node() -> WorldNode:
@@ -389,6 +580,13 @@ func _on_shore() -> bool:
 
 
 func _act() -> void:
+	var door := _door_option()
+	if not door.is_empty():
+		(door["go"] as Callable).call()
+		return
+	if _in_room():
+		hud.show_toast("Use Build (B) to decorate the room")
+		return
 	var n := _nearest_node()
 	if n:
 		net.send({"t": "interact", "id": n.node_id})
@@ -414,10 +612,15 @@ func _process(delta: float) -> void:
 	if input.length() > 0.05:
 		var dir := Vector3(input.x, 0, input.y).rotated(Vector3.UP, cam_yaw)
 		me.position += dir * SPEED * delta
-		var flat := Vector2(me.position.x, me.position.z)
-		if flat.length() > ISLAND_RADIUS:
-			flat = flat.normalized() * ISLAND_RADIUS
-			me.position = Vector3(flat.x, 0, flat.y)
+		if _in_room():
+			var c := Defs.room_center(Defs.room_slot_at(me.position.x))
+			me.position.x = clampf(me.position.x, c.x - Defs.ROOM_HALF, c.x + Defs.ROOM_HALF)
+			me.position.z = clampf(me.position.z, -Defs.ROOM_HALF, Defs.ROOM_HALF)
+		else:
+			var flat := Vector2(me.position.x, me.position.z)
+			if flat.length() > ISLAND_RADIUS:
+				flat = flat.normalized() * ISLAND_RADIUS
+				me.position = Vector3(flat.x, 0, flat.y)
 		me.rotation.y = lerp_angle(me.rotation.y, atan2(-dir.x, -dir.z), minf(1.0, 14.0 * delta))
 		_push_out_of_nodes()
 
@@ -442,6 +645,13 @@ func _process(delta: float) -> void:
 
 
 func _push_out_of_nodes() -> void:
+	if _in_room():
+		return
+	for hv: HouseView in houses.values():
+		var ho := me.position - hv.position
+		ho.y = 0
+		if ho.length() < Defs.HOUSE_COLLISION_RADIUS:
+			me.position = hv.position + ho.normalized() * Defs.HOUSE_COLLISION_RADIUS
 	for n: WorldNode in nodes.values():
 		var offset := me.position - n.position
 		offset.y = 0
@@ -453,14 +663,23 @@ func _push_out_of_nodes() -> void:
 
 
 func _update_prompt() -> void:
+	hud.set_nearby_decor(_nearest_decor() != null)
+	_update_ghost()
+	var door := _door_option()
+	if hud.is_building():
+		hud.set_prompt("P: place   R: rotate   Esc: cancel")
+		return
+	if not door.is_empty():
+		hud.set_prompt(door["text"])
+		return
 	var n := _nearest_node()
-	if n:
+	if n and not _in_room():
 		var what := "pick fruit / gather wood" if n.kind == "tree" else "take stone"
 		if n.is_ready() or n.kind == "tree":
 			hud.set_prompt("F: %s" % what)
 		else:
 			hud.set_prompt("(%s: nothing right now)" % n.kind)
-	elif _on_shore():
+	elif _on_shore() and not _in_room():
 		hud.set_prompt("F: fish" if hud.has_item("fishing_rod") else "Shore: craft a fishing rod to fish")
 	else:
 		hud.set_prompt("")

@@ -9,13 +9,64 @@ const ITEM_NAMES := {
 	"fishing_rod": "Fishing rod",
 	"fruit_basket": "Fruit basket",
 	"campfire": "Campfire",
+	"chair": "Chair",
+	"table": "Table",
+	"lamp": "Lamp",
+	"bed": "Bed",
+	"flower_pot": "Flower pot",
 }
+
+const PLACEABLE := ["fruit_basket", "campfire", "chair", "table", "lamp", "bed", "flower_pot"]
 
 const RECIPES := {
 	"fishing_rod": {"wood": 3},
 	"fruit_basket": {"apple": 3, "wood": 1},
 	"campfire": {"wood": 2, "stone": 3},
+	"chair": {"wood": 2},
+	"table": {"wood": 4},
+	"lamp": {"wood": 1, "stone": 1},
+	"bed": {"wood": 6},
+	"flower_pot": {"stone": 2},
 }
 
 const INTERACT_RANGE := 3.5  # server allows 4
 const SHORE_DISTANCE := 37.0  # island radius 40 minus 3
+
+# Houses and rooms (mirrors server/src/protocol.ts)
+const ISLAND_RADIUS := 40.0
+const MAX_HOUSES := 12
+const HOUSE_RING_RADIUS := 28.0
+const HOUSE_COLLISION_RADIUS := 3.2
+const ROOM_BASE_X := 500.0
+const ROOM_SPACING := 40.0
+const ROOM_HALF := 6.0
+const ROOM_PLACE_HALF := 5.0
+const ROOM_REGION_X := 480.0
+const PLACE_RANGE := 5.5  # server allows 6
+
+
+static func slot_angle(slot: int) -> float:
+	return slot * TAU / MAX_HOUSES
+
+
+static func house_center(slot: int) -> Vector3:
+	var a := slot_angle(slot)
+	return Vector3(cos(a) * HOUSE_RING_RADIUS, 0, sin(a) * HOUSE_RING_RADIUS)
+
+
+## Spot in front of the door, toward the island center.
+static func door_outside(slot: int) -> Vector3:
+	var a := slot_angle(slot)
+	return Vector3(cos(a) * (HOUSE_RING_RADIUS - 3.5), 0, sin(a) * (HOUSE_RING_RADIUS - 3.5))
+
+
+static func room_center(slot: int) -> Vector3:
+	return Vector3(ROOM_BASE_X + slot * ROOM_SPACING, 0, 0)
+
+
+static func room_slot_at(x: float) -> int:
+	return roundi((x - ROOM_BASE_X) / ROOM_SPACING)
+
+
+static func room_exit_spot(slot: int) -> Vector3:
+	return room_center(slot) + Vector3(0, 0, 5.5)

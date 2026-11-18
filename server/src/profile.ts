@@ -37,6 +37,14 @@ export class Profile extends DurableObject<Env> {
     return this.inventory();
   }
 
+  /** Removes one item. Returns the new inventory, or null if the player has none. */
+  take(item: string): Inventory | null {
+    const inv = this.inventory();
+    if ((inv[item] ?? 0) < 1) return null;
+    this.ctx.storage.sql.exec("UPDATE inv SET qty = qty - 1 WHERE item = ?", item);
+    return this.inventory();
+  }
+
   /** Atomically pays `cost` and grants one `output`. Returns null if the inventory is short. */
   craft(output: string, cost: Inventory): Inventory | null {
     const inv = this.inventory();

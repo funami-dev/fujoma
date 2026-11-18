@@ -1,4 +1,4 @@
-import { ISLAND_RADIUS, type WorldNode } from "./protocol";
+import { doorOutside, houseCenter, ISLAND_RADIUS, MAX_HOUSES, type WorldNode } from "./protocol";
 
 /** Deterministic PRNG so every island has the same layout. */
 function mulberry32(seed: number): () => number {
@@ -24,6 +24,7 @@ export function generateNodes(): NodeLayout[] {
       const x = Math.cos(angle) * dist;
       const z = Math.sin(angle) * dist;
       if (nodes.some((o) => Math.hypot(o.x - x, o.z - z) < 3)) continue;
+      if (nearHouse(x, z)) continue;
       nodes.push({ id: `${prefix}${n}`, k, x, z });
       n++;
     }
@@ -31,4 +32,14 @@ export function generateNodes(): NodeLayout[] {
   place("tree", 28, "t");
   place("rock", 10, "r");
   return nodes;
+}
+
+/** Keeps trees and rocks away from every possible house slot (static, so the layout never changes). */
+function nearHouse(x: number, z: number): boolean {
+  for (let slot = 0; slot < MAX_HOUSES; slot++) {
+    const h = houseCenter(slot);
+    const d = doorOutside(slot);
+    if (Math.hypot(h.x - x, h.z - z) < 7 || Math.hypot(d.x - x, d.z - z) < 4) return true;
+  }
+  return false;
 }

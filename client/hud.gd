@@ -4,6 +4,10 @@ extends CanvasLayer
 
 signal act_pressed
 signal craft_requested(recipe: String)
+signal build_item_selected(item: String)
+signal place_pressed
+signal rotate_pressed
+signal pickup_pressed
 
 var _inventory_label: Label
 var _prompt: Label
@@ -12,6 +16,12 @@ var _toast_left := 0.0
 var _craft_panel: PanelContainer
 var _craft_buttons: Dictionary = {}
 var _inv: Dictionary = {}
+var _build_panel: PanelContainer
+var _build_items: VBoxContainer
+var _build_hint: Label
+var _pickup_btn: Button
+var _rotate_btn: Button
+var selected_item := ""
 
 
 func _ready() -> void:
@@ -47,21 +57,37 @@ func _ready() -> void:
 	buttons.anchor_bottom = 1.0
 	buttons.offset_left = -130
 	buttons.offset_right = -16
-	buttons.offset_top = -150
+	buttons.offset_top = -290
 	buttons.offset_bottom = -16
+	buttons.alignment = BoxContainer.ALIGNMENT_END
 	add_child(buttons)
-	var act := Button.new()
-	act.text = "Act (F)"
-	act.custom_minimum_size = Vector2(0, 56)
-	act.focus_mode = Control.FOCUS_NONE
-	act.pressed.connect(func() -> void: act_pressed.emit())
-	buttons.add_child(act)
-	var craft := Button.new()
-	craft.text = "Craft (C)"
-	craft.custom_minimum_size = Vector2(0, 56)
-	craft.focus_mode = Control.FOCUS_NONE
-	craft.pressed.connect(toggle_craft)
-	buttons.add_child(craft)
+	_pickup_btn = _action_button(buttons, "Pick up (G)", func() -> void: pickup_pressed.emit())
+	_rotate_btn = _action_button(buttons, "Rotate (R)", func() -> void: rotate_pressed.emit())
+	_pickup_btn.visible = false
+	_rotate_btn.visible = false
+	_action_button(buttons, "Act (F)", func() -> void: act_pressed.emit())
+	_action_button(buttons, "Build (B)", toggle_build)
+	_action_button(buttons, "Craft (C)", toggle_craft)
+
+	_build_panel = PanelContainer.new()
+	_build_panel.anchor_left = 1.0
+	_build_panel.anchor_right = 1.0
+	_build_panel.offset_left = -330
+	_build_panel.offset_right = -140
+	_build_panel.offset_top = 56
+	_build_panel.visible = false
+	add_child(_build_panel)
+	var build_box := VBoxContainer.new()
+	_build_panel.add_child(build_box)
+	_build_hint = Label.new()
+	_build_hint.text = "Pick an item, then Place (P)"
+	build_box.add_child(_build_hint)
+	_build_items = VBoxContainer.new()
+	build_box.add_child(_build_items)
+	var place_row := HBoxContainer.new()
+	build_box.add_child(place_row)
+	_action_button(place_row, "Place (P)", func() -> void: place_pressed.emit())
+	_action_button(place_row, "Rotate (R)", func() -> void: rotate_pressed.emit())
 
 	_craft_panel = PanelContainer.new()
 	_craft_panel.anchor_left = 1.0
@@ -82,8 +108,40 @@ func _ready() -> void:
 	set_inventory({})
 
 
+func _action_button(parent: Control, text: String, callback: Callable) -> Button:
+	var b := Button.new()
+	b.text = text
+	b.custom_minimum_size = Vector2(0, 44)
+	b.focus_mode = Control.FOCUS_NONE
+	b.pressed.connect(callback)
+	parent.add_child(b)
+	return b
+
+
 func toggle_craft() -> void:
 	_craft_panel.visible = not _craft_panel.visible
+
+
+func toggle_build() -> void:
+	_build_panel.visible = not _build_panel.visible
+	if not _build_panel.visible:
+		select_item("")
+
+
+func is_building() -> bool:
+	return _build_panel.visible and selected_item != ""
+
+
+func select_item(item: String) -> void:
+	selected_item = item
+	build_item_selected.emit(item)
+	_refresh_build_items()
+
+
+func set_nearby_decor(near: bool) -> void:
+	var visible_now := near and not is_building()
+	_pickup_btn.visible = visible_now
+	_rotate_btn.visible = visible_now
 
 
 func set_prompt(text: String) -> void:
@@ -103,6 +161,9 @@ func set_inventory(inv: Dictionary) -> void:
 		if qty > 0:
 			lines.append("%s x%d" % [Defs.ITEM_NAMES[item], qty])
 	_inventory_label.text = "Inventory\n" + ("\n".join(lines) if lines.size() > 0 else "(empty)")
+	if selected_item != "" and int(inv.get(selected_item, 0)) < 1:
+		select_item("")
+	_refresh_build_items()
 	for recipe: String in _craft_buttons:
 		var cost: Dictionary = Defs.RECIPES[recipe]
 		var parts: PackedStringArray = []
@@ -114,6 +175,25 @@ func set_inventory(inv: Dictionary) -> void:
 		var b: Button = _craft_buttons[recipe]
 		b.text = "%s (%s)" % [Defs.ITEM_NAMES[recipe], ", ".join(parts)]
 		b.disabled = not affordable
+
+
+func _refresh_build_items() -> void:
+	if _build_items == null:
+		return
+	for c in _build_items.get_children():
+		c.queue_free()
+	var any := false
+	for item: String in Defs.PLACEABLE:
+		var qty := int(_inv.get(item, 0))
+		if qty < 1:
+			continue
+		any = true
+		var b := Button.new()
+		b.text = "%s x%d%s" % [Defs.ITEM_NAMES[item], qty, "  <" if item == selected_item else ""]
+		b.focus_mode = Control.FOCUS_NONE
+		b.pressed.connect(select_item.bind(item))
+		_build_items.add_child(b)
+	_build_hint.text = "Pick an item, then Place (P)" if any else "Nothing to place. Craft furniture first (C)."
 
 
 func has_item(item: String) -> bool:

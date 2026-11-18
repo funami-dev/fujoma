@@ -2,6 +2,20 @@ import { DurableObject } from "cloudflare:workers";
 import type { Env } from "./env";
 import {
   EMOTES,
+  MAX_DECOR_PER_ISLAND,
+  MAX_DECOR_PER_PLAYER,
+  MAX_HOUSES,
+  PLACEABLE,
+  PLACE_RANGE,
+  ROOM_HALF,
+  ROOM_PLACE_HALF,
+  ROOM_REGION_X,
+  doorOutside,
+  houseCenter,
+  roomCenter,
+  roomSlotAt,
+  type Decor,
+  type House,
   FISH_COOLDOWN_MS,
   INTERACT_RANGE,
   ISLAND_RADIUS,
@@ -28,11 +42,17 @@ export class Island extends DurableObject<Env> {
   private layout: NodeLayout[] = generateNodes();
   private cooldowns: Cooldowns = {};
   private lastFish = new Map<string, number>();
+  private decor: Decor[] = [];
+  private houses: House[] = [];
+  private nextDecorId = 1;
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
     ctx.blockConcurrencyWhile(async () => {
       this.cooldowns = (await ctx.storage.get<Cooldowns>("cooldowns")) ?? {};
+      this.decor = (await ctx.storage.get<Decor[]>("decor")) ?? [];
+      this.houses = (await ctx.storage.get<House[]>("houses")) ?? [];
+      this.nextDecorId = (await ctx.storage.get<number>("nextDecorId")) ?? 1;
     });
   }
 
@@ -65,13 +85,13 @@ export class Island extends DurableObject<Env> {
     switch (msg.t) {
       case "pos": {
         if (![msg.x, msg.z, msg.ry].every(Number.isFinite)) return;
-        const len = Math.hypot(msg.x, msg.z);
-        const k = len > ISLAND_RADIUS ? ISLAND_RADIUS / len : 1;
-        player.x = msg.x * k;
-        player.z = msg.z * k;
+        const c = this.constrain(msg.x, msg.z);
+        if (!c) return;
+        player.x = c.x;
+        player.z = c.z;
         player.ry = msg.ry;
         ws.serializeAttachment(player);
-        this.broadcast({ t: "pos", id: player.id, x: player.x, z: player.z, ry: player.ry }, ws);
+        this.broadcast({ t: "pos", id: player.id, x: player.x, z: player.z, ry: player.ry, s: msg.s === true }, ws);
         break;
       }
       case "chat": {
@@ -93,6 +113,15 @@ export class Island extends DurableObject<Env> {
         break;
       case "craft":
         await this.craft(ws, player, String(msg.recipe));
+        break;
+      case "place":
+        await this.place(ws, player, msg);
+        break;
+      case "pickup":
+        await this.pickup(ws, player, String(msg.id));
+        break;
+      case "rotate":
+        this.rotate(ws, player, String(msg.id));
         break;
     }
   }
@@ -143,6 +172,7 @@ export class Island extends DurableObject<Env> {
       if (o && o.id === p.id) other.close(4000, "replaced");
     }
     ws.serializeAttachment(p);
+    const newHouse = await this.assignHouse(p);
     const players = this.players().filter((q) => q.id !== p.id);
     this.send(ws, {
       t: "welcome",
@@ -150,8 +180,11 @@ export class Island extends DurableObject<Env> {
       players,
       nodes: this.nodes(),
       inv: await profile.inventory(),
+      houses: this.houses,
+      decor: this.decor,
     });
     this.broadcast({ t: "joined", p }, ws);
+    if (newHouse) this.broadcast({ t: "house", h: newHouse }, ws);
   }
 
   private async interact(ws: WebSocket, player: Player, id: string): Promise<void> {
@@ -227,6 +260,144 @@ export class Island extends DurableObject<Env> {
     }
     this.send(ws, { t: "inv", inv });
     this.toast(ws, `Crafted: ${recipe.replace("_", " ")}`);
+  }
+
+  // ------------------------------------------------------------ houses and decoration
+
+  /** Gives a guest the first free house slot. Returns the house if it is new or its name changed. */
+  private async assignHouse(p: Player): Promise<House | null> {
+    const existing = this.houses.find((h) => h.owner === p.id);
+    if (existing) {
+      if (existing.name === p.name) return null;
+      existing.name = p.name;
+      await this.ctx.storage.put("houses", this.houses);
+      return existing;
+    }
+    const used = new Set(this.houses.map((h) => h.slot));
+    for (let slot = 0; slot < MAX_HOUSES; slot++) {
+      if (!used.has(slot)) {
+        const house: House = { owner: p.id, name: p.name, slot };
+        this.houses.push(house);
+        await this.ctx.storage.put("houses", this.houses);
+        return house;
+      }
+    }
+    return null; // island is full of houses; the guest can still visit others
+  }
+
+  private houseBySlot(slot: number): House | undefined {
+    return this.houses.find((h) => h.slot === slot);
+  }
+
+  /** Clamps a position to the island or to an existing room. Returns null for invalid positions. */
+  private constrain(x: number, z: number): { x: number; z: number } | null {
+    if (x < ROOM_REGION_X) {
+      const len = Math.hypot(x, z);
+      const k = len > ISLAND_RADIUS ? ISLAND_RADIUS / len : 1;
+      return { x: x * k, z: z * k };
+    }
+    const slot = roomSlotAt(x);
+    if (slot < 0 || slot >= MAX_HOUSES || !this.houseBySlot(slot)) return null;
+    const c = roomCenter(slot);
+    return {
+      x: Math.min(c.x + ROOM_HALF, Math.max(c.x - ROOM_HALF, x)),
+      z: Math.min(ROOM_HALF, Math.max(-ROOM_HALF, z)),
+    };
+  }
+
+  /** Why (gx, gz) is not a valid place for `player` to decorate, or null if it is fine. */
+  private placementProblem(player: Player, gx: number, gz: number): string | null {
+    if (Math.hypot(gx - player.x, gz - player.z) > PLACE_RANGE) return "Too far away";
+    if (this.decor.some((d) => d.gx === gx && d.gz === gz)) return "Something is already there";
+
+    if (gx >= ROOM_REGION_X) {
+      const slot = roomSlotAt(gx);
+      const house = this.houseBySlot(slot);
+      if (!house || roomSlotAt(player.x) !== slot || player.x < ROOM_REGION_X) return "Not inside this room";
+      if (house.owner !== player.id) return "Only the owner can decorate this room";
+      const c = roomCenter(slot);
+      if (Math.abs(gx - c.x) > ROOM_PLACE_HALF || Math.abs(gz) > ROOM_PLACE_HALF) return "Outside the room";
+      return null;
+    }
+    if (player.x >= ROOM_REGION_X) return "Not on the island";
+    if (Math.hypot(gx, gz) > ISLAND_RADIUS - 1.5) return "Too close to the water";
+    if (this.layout.some((n) => Math.hypot(n.x - gx, n.z - gz) < 1.8)) return "Something is in the way";
+    for (let slot = 0; slot < MAX_HOUSES; slot++) {
+      const h = houseCenter(slot);
+      const d = doorOutside(slot);
+      if (Math.hypot(h.x - gx, h.z - gz) < 4.5 || Math.hypot(d.x - gx, d.z - gz) < 2.5) {
+        return "Too close to a house";
+      }
+    }
+    return null;
+  }
+
+  private async place(ws: WebSocket, player: Player, msg: Extract<ClientMessage, { t: "place" }>): Promise<void> {
+    const item = String(msg.item);
+    const gx = Math.round(Number(msg.gx));
+    const gz = Math.round(Number(msg.gz));
+    const rot = ((Math.round(Number(msg.rot)) % 4) + 4) % 4;
+    if (!PLACEABLE.includes(item) || !Number.isFinite(gx) || !Number.isFinite(gz)) return;
+
+    const problem = this.placementProblem(player, gx, gz);
+    if (problem) {
+      this.toast(ws, problem);
+      return;
+    }
+    if (this.decor.length >= MAX_DECOR_PER_ISLAND) {
+      this.toast(ws, "This island has too much decoration");
+      return;
+    }
+    if (this.decor.filter((d) => d.owner === player.id).length >= MAX_DECOR_PER_PLAYER) {
+      this.toast(ws, "You have placed too many objects");
+      return;
+    }
+    const inv = await this.profile(player).take(item);
+    if (!inv) {
+      this.toast(ws, "You do not have that item");
+      return;
+    }
+    const d: Decor = { id: `d${this.nextDecorId++}`, item, gx, gz, rot, owner: player.id };
+    this.decor.push(d);
+    await this.saveDecor();
+    this.send(ws, { t: "inv", inv });
+    this.broadcast({ t: "decor_add", d });
+  }
+
+  /** Decoration the player may change: anyone outside, only the owner inside a room. */
+  private editableDecor(ws: WebSocket, player: Player, id: string): Decor | null {
+    const d = this.decor.find((x) => x.id === id);
+    if (!d) return null;
+    if (Math.hypot(d.gx - player.x, d.gz - player.z) > PLACE_RANGE) {
+      this.toast(ws, "Too far away");
+      return null;
+    }
+    if (d.gx >= ROOM_REGION_X && this.houseBySlot(roomSlotAt(d.gx))?.owner !== player.id) {
+      this.toast(ws, "Only the owner can change this room");
+      return null;
+    }
+    return d;
+  }
+
+  private async pickup(ws: WebSocket, player: Player, id: string): Promise<void> {
+    const d = this.editableDecor(ws, player, id);
+    if (!d) return;
+    this.decor = this.decor.filter((x) => x.id !== id);
+    await this.saveDecor();
+    this.send(ws, { t: "inv", inv: await this.profile(player).add(d.item, 1) });
+    this.broadcast({ t: "decor_remove", id });
+  }
+
+  private rotate(ws: WebSocket, player: Player, id: string): void {
+    const d = this.editableDecor(ws, player, id);
+    if (!d) return;
+    d.rot = (d.rot + 1) % 4;
+    void this.saveDecor();
+    this.broadcast({ t: "decor_rot", id, rot: d.rot });
+  }
+
+  private async saveDecor(): Promise<void> {
+    await this.ctx.storage.put({ decor: this.decor, nextDecorId: this.nextDecorId });
   }
 
   // ------------------------------------------------------------ helpers

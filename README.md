@@ -10,6 +10,7 @@ A 3D browser game in the style of Animal Crossing with real-time multiplayer.
 ## Decisions
 - Guest access first, accounts later
 - Placeholder assets for now, later asset packs or custom models
+- Houses: every guest gets a house (up to 12 per island). Interiors are rooms far away in the same world; anyone can visit, only the owner decorates inside. Outdoors, anyone can place and pick up furniture.
 - MVP: real-time events (Easter, Halloween), gathering and crafting, island decoration, economy and NPCs
 
 See [docs/phase-plan.md](docs/phase-plan.md) for the roadmap.
