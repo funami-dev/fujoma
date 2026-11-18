@@ -31,11 +31,11 @@ jobs:
         run: |
           base=https://github.com/godotengine/godot-builds/releases/download/${GODOT_VERSION}-stable
           mkdir -p ~/godot ~/.local/share/godot/export_templates/${GODOT_VERSION}.stable
-          curl -fsSL -o godot.zip $base/Godot_v${GODOT_VERSION}-stable_linux.x86_64.zip
-          unzip -q godot.zip -d ~/godot
-          curl -fsSL -o templates.tpz $base/Godot_v${GODOT_VERSION}-stable_export_templates.tpz
-          unzip -q templates.tpz -d tpl
-          cp tpl/templates/web_nothreads_release.zip tpl/templates/version.txt \
+          curl -fsSL -o "$RUNNER_TEMP/godot.zip" $base/Godot_v${GODOT_VERSION}-stable_linux.x86_64.zip
+          unzip -q "$RUNNER_TEMP/godot.zip" -d ~/godot
+          curl -fsSL -o "$RUNNER_TEMP/templates.tpz" $base/Godot_v${GODOT_VERSION}-stable_export_templates.tpz
+          unzip -q "$RUNNER_TEMP/templates.tpz" -d "$RUNNER_TEMP/tpl"
+          cp "$RUNNER_TEMP/tpl/templates/web_nothreads_release.zip" "$RUNNER_TEMP/tpl/templates/version.txt" \
             ~/.local/share/godot/export_templates/${GODOT_VERSION}.stable/
 
       - name: Export Web build
