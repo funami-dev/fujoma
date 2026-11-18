@@ -2,7 +2,7 @@ extends Node3D
 
 ## Phase 0: spinning cube + WebSocket round trip to the island server.
 
-const SERVER_URL := "ws://localhost:8787/island/test/ws"
+const SERVER_URL := "wss://fujoma-server.dw-a6b.workers.dev/island/test/ws"
 
 var _socket := WebSocketPeer.new()
 var _was_open := false
