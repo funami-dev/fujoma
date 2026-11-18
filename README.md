@@ -13,3 +13,8 @@ A 3D browser game in the style of Animal Crossing with real-time multiplayer.
 - MVP: real-time events (Easter, Halloween), gathering and crafting, island decoration, economy and NPCs
 
 See [docs/phase-plan.md](docs/phase-plan.md) for the roadmap.
+
+## Deployment
+- The web client is exported from Godot and deployed to Vercel by `.github/workflows/deploy-web.yml` on pushes to `main`.
+- Vercel's own Git deployments are disabled in `vercel.json`, because the Godot export is not committed.
+- Required GitHub repository secret: `VERCEL_TOKEN`.
