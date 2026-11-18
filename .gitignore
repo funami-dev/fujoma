@@ -39,3 +39,8 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# Godot / Cloudflare
+client/.godot/
+server/node_modules/
+server/.wrangler/
