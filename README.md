@@ -19,3 +19,7 @@ See [docs/phase-plan.md](docs/phase-plan.md) for the roadmap.
 - The web client is exported from Godot and deployed to Vercel by `.github/workflows/deploy-web.yml` on pushes to `main`.
 - Vercel's own Git deployments are disabled in `vercel.json`, because the Godot export is not committed.
 - Required GitHub repository secret: `VERCEL_TOKEN`.
+
+## Credits
+- Character model, animations and skins: "Animated Characters Survivors" by [Kenney](https://www.kenney.nl), CC0 (see `client/assets/characters/License.txt`).
+- A player's skin is picked from their guest id (4 skins).
