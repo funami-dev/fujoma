@@ -1,10 +1,8 @@
 import { Island } from "./island";
+import { Profile } from "./profile";
+import type { Env } from "./env";
 
-export { Island };
-
-export interface Env {
-  ISLAND: DurableObjectNamespace;
-}
+export { Island, Profile };
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {

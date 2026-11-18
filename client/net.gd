@@ -4,6 +4,7 @@ extends Node
 
 signal connected
 signal disconnected
+signal rejected(code: int)
 signal message(data: Dictionary)
 
 const RECONNECT_DELAY := 2.0
@@ -12,6 +13,7 @@ var url := ""
 var _socket: WebSocketPeer
 var _was_open := false
 var _retry_in := 0.0
+var _stopped := false
 
 
 func open(server_url: String) -> void:
@@ -38,6 +40,8 @@ func _connect() -> void:
 
 func _process(delta: float) -> void:
 	if _socket == null:
+		if _stopped:
+			return
 		_retry_in -= delta
 		if _retry_in <= 0.0:
 			_connect()
@@ -54,7 +58,12 @@ func _process(delta: float) -> void:
 					message.emit(parsed)
 		WebSocketPeer.STATE_CLOSED:
 			var was_open := _was_open
+			var code := _socket.get_close_code()
 			_socket = null
+			if code in [4000, 4001, 4003]:
+				_stopped = true
+				rejected.emit(code)
+				return
 			_retry_in = RECONNECT_DELAY
 			if was_open:
 				disconnected.emit()
