@@ -1,0 +1,54 @@
+name: Deploy web client
+
+on:
+  push:
+    branches: [main]
+    paths: ["client/**", "web/**", "vercel.json", ".github/workflows/deploy-web.yml"]
+  workflow_dispatch:
+
+env:
+  GODOT_VERSION: "4.4.1"
+  VERCEL_ORG_ID: team_Ep5dMNYrSKKpU4oBk1nBa7GW
+  VERCEL_PROJECT_ID: prj_rDvLvGxyxEO4yuAbgNSs0ls2j9mk
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache Godot binary and export templates
+        id: cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/godot
+            ~/.local/share/godot/export_templates
+          key: godot-${{ env.GODOT_VERSION }}-web
+
+      - name: Install Godot and the web export template
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: |
+          base=https://github.com/godotengine/godot-builds/releases/download/${GODOT_VERSION}-stable
+          mkdir -p ~/godot ~/.local/share/godot/export_templates/${GODOT_VERSION}.stable
+          curl -fsSL -o godot.zip $base/Godot_v${GODOT_VERSION}-stable_linux.x86_64.zip
+          unzip -q godot.zip -d ~/godot
+          curl -fsSL -o templates.tpz $base/Godot_v${GODOT_VERSION}-stable_export_templates.tpz
+          unzip -q templates.tpz -d tpl
+          cp tpl/templates/web_nothreads_release.zip tpl/templates/version.txt \
+            ~/.local/share/godot/export_templates/${GODOT_VERSION}.stable/
+
+      - name: Export Web build
+        run: |
+          godot=~/godot/Godot_v${GODOT_VERSION}-stable_linux.x86_64
+          cd client
+          $godot --headless --import
+          $godot --headless --export-release Web ../web/index.html
+          ls -la ../web
+
+      - name: Deploy to Vercel
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: |
+          npx --yes vercel@latest pull --yes --environment=production --token="$VERCEL_TOKEN"
+          npx --yes vercel@latest deploy --prod --yes --token="$VERCEL_TOKEN"
