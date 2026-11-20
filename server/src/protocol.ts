@@ -200,3 +200,21 @@ export function shopIsOpen(now: Date = new Date()): boolean {
   const h = islandHour(now);
   return h >= SHOP_OPEN_HOUR && h < SHOP_CLOSE_HOUR;
 }
+
+// ---------------------------------------------------------------- props
+
+/** Quirky decorations on the meadow. r is their footprint: no furniture inside it. Mirrored in client/defs.gd. */
+export const PROPS: { kind: string; x: number; z: number; r: number }[] = [
+  { kind: "bathtub", x: 9.2, z: -15, r: 2.2 },
+  { kind: "signpost", x: 11.3, z: -2.6, r: 1.2 },
+  { kind: "scarecrow", x: -12.5, z: -15, r: 1.6 },
+  { kind: "laundry", x: -18.8, z: -0.9, r: 2.6 },
+  { kind: "boot_house", x: -7.9, z: 32.3, r: 2.4 },
+  { kind: "windmill", x: 19.7, z: 3.9, r: 1.2 },
+  { kind: "ladder", x: 32.9, z: 7.9, r: 1.2 },
+  { kind: "stump_house", x: 9.8, z: 16.4, r: 1.8 },
+  { kind: "birdhouse", x: 1.3, z: 8.6, r: 1.0 },
+  { kind: "crates", x: -2.9, z: 14.2, r: 2.0 },
+  { kind: "mushroom_house", x: -16.9, z: 17.2, r: 2.2 },
+  { kind: "wheelbarrow", x: 22, z: -4.5, r: 1.8 },
+];
