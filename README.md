@@ -25,4 +25,8 @@ See [docs/phase-plan.md](docs/phase-plan.md) for the roadmap.
 
 ## Credits
 - Character model, animations and skins: "Animated Characters Survivors" by [Kenney](https://www.kenney.nl), CC0 (see `client/assets/characters/License.txt`).
-- A player's skin is picked from their guest id (4 skins).
+- A player's skin is picked from their guest id (the two human skins), lightly tinted with the player's color.
+- Font: "Patrick Hand" by Patrick Wagesreiter, SIL Open Font License 1.1 (see `client/assets/fonts/PatrickHand-OFL.txt`).
+
+## Look
+A warm, hand-drawn storybook style: painterly toon shading with violet shadows and paper grain (`client/shaders/toon.gdshader`), ink outlines with a constant pixel width (`client/shaders/outline.gdshader`), a muted earthy palette and paper-like UI. Materials, labels and the UI theme come from `client/style.gd`.

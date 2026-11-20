@@ -21,7 +21,7 @@ const DEFS := {
 		],
 	},
 	"pia": {
-		"name": "Pia", "skin": 2, "sleep": [21.0, 7.0], "wander": 0.8,
+		"name": "Pia", "skin": 1, "tint": Color(0.75, 0.95, 0.75), "sleep": [21.0, 7.0], "wander": 0.8,
 		"schedule": [
 			[7.0, Vector2(-4.7, 17.4)], [10.0, Vector2(-12.7, 12.7)], [13.0, Vector2(-5.2, -19.3)],
 			[16.0, Vector2(12.7, 12.7)], [19.0, Vector2(2.5, -1.5)], [21.0, Vector2(-4.7, 17.4)],
@@ -54,7 +54,7 @@ var _line_index: Dictionary = {}
 func _ready() -> void:
 	for id: String in DEFS:
 		var a := Avatar.new()
-		a.setup("npc_" + id, DEFS[id]["name"], Color.WHITE, DEFS[id]["skin"])
+		a.setup("npc_" + id, DEFS[id]["name"], DEFS[id].get("tint", Color.WHITE), DEFS[id]["skin"])
 		a.set_name_color(NAME_COLOR)
 		add_child(a)
 		avatars[id] = a

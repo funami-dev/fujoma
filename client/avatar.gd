@@ -43,9 +43,9 @@ var _status_text := ""
 
 
 ## skin: index into SKIN_PATHS, or -1 to pick one from the id.
-func setup(id: String, display_name: String, _color: Color, skin := -1) -> void:
+func setup(id: String, display_name: String, color: Color, skin := -1) -> void:
 	player_id = id
-	_build_model(skin)
+	_build_model(skin, Color.WHITE.lerp(color, 0.22))
 	_name_label = _make_label(display_name, 2.3, 40)
 	_speech_label = _make_label("", 3.0, 40)
 	_speech_label.modulate = Color(1, 1, 0.6)
@@ -73,7 +73,7 @@ func emote(kind: String) -> void:
 	_emote_left = EMOTE_SECONDS
 
 
-func _build_model(skin: int) -> void:
+func _build_model(skin: int, tint: Color) -> void:
 	if _model_scene == null:
 		_model_scene = load(MODEL_PATH)
 	_model = _model_scene.instantiate()
@@ -82,10 +82,9 @@ func _build_model(skin: int) -> void:
 	add_child(_model)
 
 	# The skin is picked from the player id so everyone looks the same on every client.
-	var skin_index := skin if skin >= 0 else absi(player_id.hash()) % SKIN_PATHS.size()
-	var mat := StandardMaterial3D.new()
-	mat.albedo_texture = load(SKIN_PATHS[skin_index])
-	mat.roughness = 0.9
+	# Players get one of the two human skins (the zombies do not fit the storybook look).
+	var skin_index := skin if skin >= 0 else absi(player_id.hash()) % 2
+	var mat := Style.mat(tint, {"texture": load(SKIN_PATHS[skin_index]), "paper": 0.06})
 	for mi in _model.find_children("*", "MeshInstance3D", true, false):
 		(mi as MeshInstance3D).material_override = mat
 
@@ -124,13 +123,7 @@ func _play(anim_name: String) -> void:
 
 
 func _make_label(text: String, height: float, size: int) -> Label3D:
-	var label := Label3D.new()
-	label.text = text
-	label.billboard = BaseMaterial3D.BILLBOARD_ENABLED
-	label.no_depth_test = true
-	label.pixel_size = 0.012
-	label.font_size = size
-	label.outline_size = 8
+	var label := Style.label3d(text, size)
 	label.position.y = height
 	add_child(label)
 	return label

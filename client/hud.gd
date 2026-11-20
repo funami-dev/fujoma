@@ -68,7 +68,7 @@ func _ready() -> void:
 	_toast.offset_right = 250
 	_toast.offset_top = 56
 	_toast.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_toast.add_theme_color_override("font_color", Color(1, 1, 0.6))
+	_toast.add_theme_color_override("font_color", Color(1.0, 0.9, 0.55))
 	add_child(_toast)
 
 	var buttons := VBoxContainer.new()
@@ -101,6 +101,7 @@ func _ready() -> void:
 	var build_box := VBoxContainer.new()
 	_build_panel.add_child(build_box)
 	_build_hint = Label.new()
+	_build_hint.theme_type_variation = "PanelLabel"
 	_build_hint.text = "Pick an item, then Place (P)"
 	build_box.add_child(_build_hint)
 	_build_items = VBoxContainer.new()
@@ -130,6 +131,9 @@ func _ready() -> void:
 		box.add_child(b)
 		_craft_buttons[recipe] = b
 	set_inventory({})
+	for c in get_children():
+		if c is Control:
+			(c as Control).theme = Style.ui_theme()
 
 
 func _action_button(parent: Control, text: String, callback: Callable) -> Button:
@@ -243,9 +247,11 @@ func _build_dialogue() -> void:
 	var box := VBoxContainer.new()
 	_dialogue.add_child(box)
 	_dialogue_name = Label.new()
-	_dialogue_name.add_theme_color_override("font_color", Color(1.0, 0.85, 0.4))
+	_dialogue_name.theme_type_variation = "PanelLabel"
+	_dialogue_name.add_theme_color_override("font_color", Style.ACCENT)
 	box.add_child(_dialogue_name)
 	_dialogue_text = Label.new()
+	_dialogue_text.theme_type_variation = "PanelLabel"
 	_dialogue_text.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	_dialogue_text.custom_minimum_size = Vector2(500, 0)
 	box.add_child(_dialogue_text)
@@ -299,6 +305,7 @@ func _build_shop() -> void:
 	var header := HBoxContainer.new()
 	box.add_child(header)
 	_shop_title = Label.new()
+	_shop_title.theme_type_variation = "PanelLabel"
 	_shop_title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	header.add_child(_shop_title)
 	var close := Button.new()
@@ -349,6 +356,7 @@ func _refresh_shop() -> void:
 			any = true
 			var row := HBoxContainer.new()
 			var label := Label.new()
+			label.theme_type_variation = "PanelLabel"
 			label.text = "%s x%d  (%d each)" % [Defs.ITEM_NAMES[item], qty, Defs.SELL_PRICES[item]]
 			label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 			row.add_child(label)
@@ -365,6 +373,7 @@ func _refresh_shop() -> void:
 			_shop_list.add_child(row)
 		if not any:
 			var empty := Label.new()
+			empty.theme_type_variation = "PanelLabel"
 			empty.text = "Nothing to sell. Gather apples, wood, stone or fish."
 			_shop_list.add_child(empty)
 
