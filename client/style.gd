@@ -37,6 +37,68 @@ static func mat(color: Color, opts := {}) -> ShaderMaterial:
 	return m
 
 
+# ---------------------------------------------------------------- building blocks
+
+static func box(size: Vector3) -> BoxMesh:
+	var b := BoxMesh.new()
+	b.size = size
+	return b
+
+
+static func ball(radius: float, segments := 12) -> SphereMesh:
+	var s := SphereMesh.new()
+	s.radius = radius
+	s.height = radius * 2.0
+	s.radial_segments = segments
+	s.rings = maxi(segments / 2, 3)
+	return s
+
+
+static func cyl(top: float, bottom: float, height: float, segments := 12) -> CylinderMesh:
+	var c := CylinderMesh.new()
+	c.top_radius = top
+	c.bottom_radius = bottom
+	c.height = height
+	c.radial_segments = segments
+	c.rings = 1
+	return c
+
+
+## Adds a mesh part to `parent` with the storybook material and returns it.
+static func part(parent: Node3D, mesh: Mesh, color: Color, pos: Vector3, rot := Vector3.ZERO, opts := {}) -> MeshInstance3D:
+	var mi := MeshInstance3D.new()
+	mi.mesh = mesh
+	mi.material_override = mat(color, opts)
+	mi.position = pos
+	mi.rotation = rot
+	parent.add_child(mi)
+	return mi
+
+
+## A few soft puffs of smoke rising from `pos` (chimneys, stove pipes).
+static func smoke(parent: Node3D, pos: Vector3) -> CPUParticles3D:
+	var p := CPUParticles3D.new()
+	p.mesh = ball(0.22, 8)
+	p.material_override = mat(Color(0.93, 0.91, 0.87), {"outline": false, "paper": 0.05})
+	p.amount = 6
+	p.lifetime = 3.5
+	p.direction = Vector3(0.2, 1, 0)
+	p.spread = 12.0
+	p.gravity = Vector3(0.15, 0.35, 0)
+	p.initial_velocity_min = 0.4
+	p.initial_velocity_max = 0.7
+	p.scale_amount_min = 0.7
+	p.scale_amount_max = 1.3
+	var curve := Curve.new()
+	curve.add_point(Vector2(0, 0.4))
+	curve.add_point(Vector2(0.3, 1.0))
+	curve.add_point(Vector2(1, 0.0))
+	p.scale_amount_curve = curve
+	p.position = pos
+	parent.add_child(p)
+	return p
+
+
 static func outline_material() -> ShaderMaterial:
 	if _outline_mat == null:
 		_outline_mat = ShaderMaterial.new()

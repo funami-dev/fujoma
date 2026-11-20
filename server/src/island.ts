@@ -3,6 +3,7 @@ import type { Env } from "./env";
 import {
   COINS,
   EMOTES,
+  PROPS,
   SELL_PRICES,
   SHOP_CATALOG,
   SHOP_CLEARANCE,
@@ -340,6 +341,7 @@ export class Island extends DurableObject<Env> {
     if (Math.hypot(gx, gz) > ISLAND_RADIUS - 1.5) return "Too close to the water";
     if (this.layout.some((n) => Math.hypot(n.x - gx, n.z - gz) < 1.8)) return "Something is in the way";
     if (Math.hypot(SHOP_X - gx, SHOP_Z - gz) < SHOP_CLEARANCE) return "Too close to the shop";
+    if (PROPS.some((p) => Math.hypot(p.x - gx, p.z - gz) < p.r + 0.8)) return "Something is in the way";
     for (let slot = 0; slot < MAX_HOUSES; slot++) {
       const h = houseCenter(slot);
       const d = doorOutside(slot);

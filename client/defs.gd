@@ -88,3 +88,20 @@ static func room_slot_at(x: float) -> int:
 
 static func room_exit_spot(slot: int) -> Vector3:
 	return room_center(slot) + Vector3(0, 0, 5.5)
+
+
+# Quirky props on the meadow: [kind, position, footprint radius, scale]. Mirrors PROPS in server/src/protocol.ts.
+const PROPS := [
+	["bathtub", Vector2(9.2, -15), 2.2, 1.2],
+	["signpost", Vector2(11.3, -2.6), 1.2, 1.5],
+	["scarecrow", Vector2(-12.5, -15), 1.6, 1.3],
+	["laundry", Vector2(-18.8, -0.9), 2.6, 1.1],
+	["boot_house", Vector2(-7.9, 32.3), 2.4, 1.25],
+	["windmill", Vector2(19.7, 3.9), 1.2, 1.5],
+	["ladder", Vector2(32.9, 7.9), 1.2, 1.2],
+	["stump_house", Vector2(9.8, 16.4), 1.8, 1.4],
+	["birdhouse", Vector2(1.3, 8.6), 1.0, 1.5],
+	["crates", Vector2(-2.9, 14.2), 2.0, 1.25],
+	["mushroom_house", Vector2(-16.9, 17.2), 2.2, 1.4],
+	["wheelbarrow", Vector2(22, -4.5), 1.8, 1.4],
+]

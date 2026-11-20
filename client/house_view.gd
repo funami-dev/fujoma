@@ -64,6 +64,17 @@ func _build_exterior() -> void:
 		_mesh(self, _box(Vector3(1.0, 1.0, 0.1)), white, Vector3(x, 1.8, -2.03))
 		_mesh(self, _box(Vector3(0.75, 0.75, 0.12)), Color(0.72, 0.85, 0.88), Vector3(x, 1.8, -2.06))
 
+	Style.smoke(self, Vector3(1.4, 4.95, 0.8))
+
+	# Mailbox with a raised red flag, and a little picket fence along the sides.
+	Style.part(self, Style.cyl(0.05, 0.05, 1.1, 6), Color(0.45, 0.31, 0.21), Vector3(2.0, 0.55, -3.2))
+	Style.part(self, Style.box(Vector3(0.32, 0.3, 0.5)), Color(0.3, 0.47, 0.5), Vector3(2.0, 1.2, -3.2))
+	Style.part(self, Style.box(Vector3(0.04, 0.28, 0.06)), Color(0.85, 0.25, 0.2), Vector3(2.18, 1.4, -3.05))
+	for side in [-1.0, 1.0]:
+		for i in 6:
+			Style.part(self, Style.box(Vector3(0.08, 0.7, 0.08)), white, Vector3(side * 3.1, 0.35, -1.9 + i * 0.75))
+		Style.part(self, Style.box(Vector3(0.05, 0.08, 3.9)), white, Vector3(side * 3.1, 0.5, 0.0), Vector3.ZERO, {"outline": false})
+
 	_plaque = Style.label3d("", 40)
 	_plaque.position = Vector3(0, 5.6, 0)
 	add_child(_plaque)

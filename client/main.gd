@@ -23,6 +23,8 @@ var camera: Camera3D
 var world_env: Environment
 var sun: DirectionalLight3D
 var villagers: Villagers
+var props: Props
+var critters: Critters
 var shop_sign: Label3D
 var _daylight_timer := 0.0
 var cam_yaw := 0.0
@@ -151,6 +153,11 @@ func _build_world() -> void:
 	_build_shop_stall()
 	villagers = Villagers.new()
 	add_child(villagers)
+	props = Props.new()
+	add_child(props)
+	critters = Critters.new()
+	add_child(critters)
+	critters.setup(props.homes)
 
 	_add_mesh(_cylinder(ISLAND_RADIUS + 3.0, 2.0), Color(0.9, 0.8, 0.58), Vector3(0, -1.05, 0), {"paper": 0.2})  # sand
 	_add_mesh(_cylinder(ISLAND_RADIUS, 2.0), Color(0.54, 0.62, 0.36), Vector3(0, -1.0, 0),
@@ -421,6 +428,9 @@ func _cell_valid(cell: Vector2i) -> bool:
 		return false
 	if Vector2(cell).distance_to(Vector2(Defs.SHOP_POS.x, Defs.SHOP_POS.z)) < Defs.SHOP_CLEARANCE:
 		return false
+	for p: Array in Defs.PROPS:
+		if Vector2(cell).distance_to(p[1]) < float(p[2]) + 0.8:
+			return false
 	for n: WorldNode in nodes.values():
 		if Vector2(n.position.x, n.position.z).distance_to(Vector2(cell)) < 1.8:
 			return false
@@ -659,6 +669,7 @@ func _process(delta: float) -> void:
 
 	_update_prompt()
 	villagers.update(me.position, delta)
+	critters.update(me.position, delta)
 	_daylight_timer -= delta
 	if _daylight_timer <= 0.0:
 		_daylight_timer = 0.5
@@ -692,6 +703,13 @@ func _push_out_of_nodes() -> void:
 		ho.y = 0
 		if ho.length() < Defs.HOUSE_COLLISION_RADIUS:
 			me.position = hv.position + ho.normalized() * Defs.HOUSE_COLLISION_RADIUS
+	for p: Array in Defs.PROPS:
+		var pc := Vector3(p[1].x, 0, p[1].y)
+		var po := me.position - pc
+		po.y = 0
+		var pr: float = p[2]
+		if po.length() < pr:
+			me.position = pc + (po.normalized() if po.length() > 0.001 else Vector3.RIGHT) * pr
 	var so := me.position - Defs.SHOP_COLLISION_CENTER
 	so.y = 0
 	if so.length() < Defs.SHOP_COLLISION_RADIUS:
