@@ -49,6 +49,17 @@ func _part(mesh: Mesh, color: Color, pos: Vector3, emissive := false) -> void:
 	_meshes.append(mi)
 
 
+func _light(color: Color, pos: Vector3) -> void:
+	if decor_id == "ghost":
+		return
+	var l := OmniLight3D.new()
+	l.light_color = color
+	l.light_energy = 1.2
+	l.omni_range = 5.0
+	l.position = pos
+	add_child(l)
+
+
 func _box(size: Vector3) -> BoxMesh:
 	var b := BoxMesh.new()
 	b.size = size
@@ -87,6 +98,7 @@ func _build() -> void:
 		"lamp":
 			_part(_cyl(0.05, 1.3), Color(0.3, 0.3, 0.3), Vector3(0, 0.65, 0))
 			_part(_ball(0.25), Color(1.0, 0.9, 0.5), Vector3(0, 1.4, 0), true)
+			_light(Color(1.0, 0.85, 0.55), Vector3(0, 1.4, 0))
 		"bed":
 			_part(_box(Vector3(0.9, 0.3, 1.0)), wood, Vector3(0, 0.25, 0))
 			_part(_box(Vector3(0.8, 0.15, 0.7)), Color(0.4, 0.55, 0.9), Vector3(0, 0.46, 0.1))
@@ -100,6 +112,7 @@ func _build() -> void:
 			flame.bottom_radius = 0.25
 			flame.height = 0.7
 			_part(flame, Color(1.0, 0.5, 0.1), Vector3(0, 0.4, 0), true)
+			_light(Color(1.0, 0.55, 0.2), Vector3(0, 0.8, 0))
 		"fruit_basket":
 			_part(_cyl(0.3, 0.25), Color(0.7, 0.5, 0.25), Vector3(0, 0.12, 0))
 			for p: Vector3 in [Vector3(-0.1, 0.32, 0), Vector3(0.12, 0.3, 0.05), Vector3(0, 0.34, -0.12)]:

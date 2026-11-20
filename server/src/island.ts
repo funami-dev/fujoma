@@ -1,7 +1,16 @@
 import { DurableObject } from "cloudflare:workers";
 import type { Env } from "./env";
 import {
+  COINS,
   EMOTES,
+  SELL_PRICES,
+  SHOP_CATALOG,
+  SHOP_CLEARANCE,
+  SHOP_RANGE,
+  SHOP_X,
+  SHOP_Z,
+  islandOffsetMinutes,
+  shopIsOpen,
   MAX_DECOR_PER_ISLAND,
   MAX_DECOR_PER_PLAYER,
   MAX_HOUSES,
@@ -123,6 +132,12 @@ export class Island extends DurableObject<Env> {
       case "rotate":
         this.rotate(ws, player, String(msg.id));
         break;
+      case "buy":
+        await this.buy(ws, player, String(msg.item));
+        break;
+      case "sell":
+        await this.sell(ws, player, String(msg.item), Number(msg.qty));
+        break;
     }
   }
 
@@ -173,6 +188,7 @@ export class Island extends DurableObject<Env> {
     }
     ws.serializeAttachment(p);
     const newHouse = await this.assignHouse(p);
+    await profile.claimStartingCoins();
     const players = this.players().filter((q) => q.id !== p.id);
     this.send(ws, {
       t: "welcome",
@@ -182,6 +198,7 @@ export class Island extends DurableObject<Env> {
       inv: await profile.inventory(),
       houses: this.houses,
       decor: this.decor,
+      tz_offset: islandOffsetMinutes(),
     });
     this.broadcast({ t: "joined", p }, ws);
     if (newHouse) this.broadcast({ t: "house", h: newHouse }, ws);
@@ -322,6 +339,7 @@ export class Island extends DurableObject<Env> {
     if (player.x >= ROOM_REGION_X) return "Not on the island";
     if (Math.hypot(gx, gz) > ISLAND_RADIUS - 1.5) return "Too close to the water";
     if (this.layout.some((n) => Math.hypot(n.x - gx, n.z - gz) < 1.8)) return "Something is in the way";
+    if (Math.hypot(SHOP_X - gx, SHOP_Z - gz) < SHOP_CLEARANCE) return "Too close to the shop";
     for (let slot = 0; slot < MAX_HOUSES; slot++) {
       const h = houseCenter(slot);
       const d = doorOutside(slot);
@@ -398,6 +416,50 @@ export class Island extends DurableObject<Env> {
 
   private async saveDecor(): Promise<void> {
     await this.ctx.storage.put({ decor: this.decor, nextDecorId: this.nextDecorId });
+  }
+
+  // ------------------------------------------------------------ shop
+
+  /** Why the player cannot use the shop right now, or null. */
+  private shopProblem(player: Player): string | null {
+    if (Math.hypot(SHOP_X - player.x, SHOP_Z - player.z) > SHOP_RANGE) return "Walk up to the shop counter";
+    if (!shopIsOpen()) return "The shop is closed (open 8:00-22:00)";
+    return null;
+  }
+
+  private async buy(ws: WebSocket, player: Player, item: string): Promise<void> {
+    const price = SHOP_CATALOG[item];
+    if (!price) return;
+    const problem = this.shopProblem(player);
+    if (problem) {
+      this.toast(ws, problem);
+      return;
+    }
+    const inv = await this.profile(player).buy(item, price);
+    if (!inv) {
+      this.toast(ws, "Not enough coins");
+      return;
+    }
+    this.send(ws, { t: "inv", inv });
+    this.toast(ws, `Bought: ${item.replace("_", " ")} (-${price} coins)`);
+  }
+
+  private async sell(ws: WebSocket, player: Player, item: string, qty: number): Promise<void> {
+    const price = SELL_PRICES[item];
+    const n = Math.floor(qty);
+    if (!price || item === COINS || !Number.isFinite(n) || n < 1 || n > 999) return;
+    const problem = this.shopProblem(player);
+    if (problem) {
+      this.toast(ws, problem);
+      return;
+    }
+    const inv = await this.profile(player).sell(item, n, price);
+    if (!inv) {
+      this.toast(ws, "You do not have that many");
+      return;
+    }
+    this.send(ws, { t: "inv", inv });
+    this.toast(ws, `Sold ${n} ${item.replace("_", " ")} (+${n * price} coins)`);
   }
 
   // ------------------------------------------------------------ helpers

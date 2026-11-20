@@ -1,6 +1,6 @@
 import { DurableObject } from "cloudflare:workers";
 import type { Env } from "./env";
-import type { Inventory } from "./protocol";
+import { COINS, STARTING_COINS, type Inventory } from "./protocol";
 
 /** One Durable Object per guest: secret hash (guest auth) and inventory, persisted in SQLite. */
 export class Profile extends DurableObject<Env> {
@@ -18,6 +18,28 @@ export class Profile extends DurableObject<Env> {
       return true;
     }
     return row.v === secretHash;
+  }
+
+  /** Grants the one-time starting coins. Safe to call on every join. */
+  claimStartingCoins(): void {
+    const row = this.ctx.storage.sql.exec("SELECT v FROM meta WHERE k = 'starting_coins'").toArray()[0];
+    if (row) return;
+    this.ctx.storage.sql.exec("INSERT INTO meta (k, v) VALUES ('starting_coins', '1')");
+    this.add(COINS, STARTING_COINS);
+  }
+
+  /** Pays `price` coins for one `item`. Returns null if the player cannot afford it. */
+  buy(item: string, price: number): Inventory | null {
+    if ((this.inventory()[COINS] ?? 0) < price) return null;
+    this.ctx.storage.sql.exec("UPDATE inv SET qty = qty - ? WHERE item = ?", price, COINS);
+    return this.add(item, 1);
+  }
+
+  /** Sells `qty` of `item` for `unitPrice` coins each. Returns null if the player has too few. */
+  sell(item: string, qty: number, unitPrice: number): Inventory | null {
+    if ((this.inventory()[item] ?? 0) < qty) return null;
+    this.ctx.storage.sql.exec("UPDATE inv SET qty = qty - ? WHERE item = ?", qty, item);
+    return this.add(COINS, qty * unitPrice);
   }
 
   inventory(): Inventory {
