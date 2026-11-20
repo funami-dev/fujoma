@@ -10,6 +10,8 @@ signal rotate_pressed
 signal pickup_pressed
 signal buy_requested(item: String)
 signal sell_requested(item: String, qty: int)
+signal emote_requested(kind: String)
+signal chat_requested
 
 var _inventory_label: Label
 var _prompt: Label
@@ -33,6 +35,12 @@ var _shop: PanelContainer
 var _shop_title: Label
 var _shop_list: VBoxContainer
 var _shop_mode := ""
+var _primary: Button
+var _menu_btn: Button
+var _wheel: ActionWheel
+var _near_decor := false
+## On touch screens keyboard hints are hidden and the chat field only opens on demand.
+var touch := DisplayServer.is_touchscreen_available()
 
 
 func _ready() -> void:
@@ -71,30 +79,23 @@ func _ready() -> void:
 	_toast.add_theme_color_override("font_color", Color(1.0, 0.9, 0.55))
 	add_child(_toast)
 
-	var buttons := VBoxContainer.new()
-	buttons.anchor_left = 1.0
-	buttons.anchor_right = 1.0
-	buttons.anchor_top = 1.0
-	buttons.anchor_bottom = 1.0
-	buttons.offset_left = -130
-	buttons.offset_right = -16
-	buttons.offset_top = -290
-	buttons.offset_bottom = -16
-	buttons.alignment = BoxContainer.ALIGNMENT_END
-	add_child(buttons)
-	_pickup_btn = _action_button(buttons, "Pick up (G)", func() -> void: pickup_pressed.emit())
-	_rotate_btn = _action_button(buttons, "Rotate (R)", func() -> void: rotate_pressed.emit())
+	# Big round context button (bottom right) and the menu button that opens the action wheel.
+	_primary = _round(Vector2(-150, -150), 134.0, "Aktion", "PrimaryButton")
+	_primary.pressed.connect(func() -> void: act_pressed.emit())
+	_menu_btn = _round(Vector2(-232, -96), 80.0, "Menü", "RoundButton")
+	_menu_btn.pressed.connect(open_wheel)
+	_pickup_btn = _round(Vector2(-140, -250), 80.0, "Auf-\nheben", "RoundButton")
+	_pickup_btn.pressed.connect(func() -> void: pickup_pressed.emit())
+	_rotate_btn = _round(Vector2(-232, -200), 80.0, "Drehen", "RoundButton")
+	_rotate_btn.pressed.connect(func() -> void: rotate_pressed.emit())
 	_pickup_btn.visible = false
 	_rotate_btn.visible = false
-	_action_button(buttons, "Act (F)", func() -> void: act_pressed.emit())
-	_action_button(buttons, "Build (B)", toggle_build)
-	_action_button(buttons, "Craft (C)", toggle_craft)
 
 	_build_panel = PanelContainer.new()
 	_build_panel.anchor_left = 1.0
 	_build_panel.anchor_right = 1.0
-	_build_panel.offset_left = -330
-	_build_panel.offset_right = -140
+	_build_panel.offset_left = -380
+	_build_panel.offset_right = -16
 	_build_panel.offset_top = 56
 	_build_panel.visible = false
 	add_child(_build_panel)
@@ -102,14 +103,15 @@ func _ready() -> void:
 	_build_panel.add_child(build_box)
 	_build_hint = Label.new()
 	_build_hint.theme_type_variation = "PanelLabel"
-	_build_hint.text = "Pick an item, then Place (P)"
+	_build_hint.text = "Wähle etwas aus, dann Platzieren"
 	build_box.add_child(_build_hint)
 	_build_items = VBoxContainer.new()
 	build_box.add_child(_build_items)
 	var place_row := HBoxContainer.new()
 	build_box.add_child(place_row)
-	_action_button(place_row, "Place (P)", func() -> void: place_pressed.emit())
-	_action_button(place_row, "Rotate (R)", func() -> void: rotate_pressed.emit())
+	_action_button(place_row, "Platzieren", func() -> void: place_pressed.emit())
+	_action_button(place_row, "Drehen", func() -> void: rotate_pressed.emit())
+	_action_button(place_row, "Fertig", toggle_build)
 
 	_build_dialogue()
 	_build_shop()
@@ -117,23 +119,100 @@ func _ready() -> void:
 	_craft_panel = PanelContainer.new()
 	_craft_panel.anchor_left = 1.0
 	_craft_panel.anchor_right = 1.0
-	_craft_panel.offset_left = -330
-	_craft_panel.offset_right = -140
+	_craft_panel.offset_left = -440
+	_craft_panel.offset_right = -16
 	_craft_panel.offset_top = 56
 	_craft_panel.visible = false
 	add_child(_craft_panel)
 	var box := VBoxContainer.new()
 	_craft_panel.add_child(box)
+	var craft_head := HBoxContainer.new()
+	box.add_child(craft_head)
+	var craft_title := Label.new()
+	craft_title.theme_type_variation = "PanelLabel"
+	craft_title.text = "Basteln"
+	craft_title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	craft_head.add_child(craft_title)
+	_action_button(craft_head, "Schließen", toggle_craft)
 	for recipe: String in Defs.RECIPES:
 		var b := Button.new()
 		b.focus_mode = Control.FOCUS_NONE
 		b.pressed.connect(func() -> void: craft_requested.emit(recipe))
 		box.add_child(b)
 		_craft_buttons[recipe] = b
+	_wheel = ActionWheel.new()
+	_wheel.chosen.connect(_on_wheel_chosen)
+	add_child(_wheel)
+
 	set_inventory({})
 	for c in get_children():
 		if c is Control:
 			(c as Control).theme = Style.ui_theme()
+
+
+func _round(offset: Vector2, size_px: float, text: String, variation: String) -> Button:
+	var b := Button.new()
+	b.text = text
+	b.theme_type_variation = variation
+	b.focus_mode = Control.FOCUS_NONE
+	b.anchor_left = 1.0
+	b.anchor_right = 1.0
+	b.anchor_top = 1.0
+	b.anchor_bottom = 1.0
+	b.offset_left = offset.x
+	b.offset_top = offset.y
+	b.offset_right = offset.x + size_px
+	b.offset_bottom = offset.y + size_px
+	add_child(b)
+	return b
+
+
+# ---------------------------------------------------------------- action wheel
+
+func open_wheel() -> void:
+	var items := [
+		{"id": "build", "label": "Bauen"},
+		{"id": "craft", "label": "Basteln"},
+		{"id": "chat", "label": "Chat"},
+		{"id": "wave", "label": Defs.EMOTE_LABELS["wave"]},
+		{"id": "happy", "label": Defs.EMOTE_LABELS["happy"]},
+		{"id": "sad", "label": Defs.EMOTE_LABELS["sad"]},
+		{"id": "dance", "label": Defs.EMOTE_LABELS["dance"]},
+	]
+	if _near_decor:
+		items.insert(2, {"id": "pickup", "label": "Auf-\nheben"})
+		items.insert(3, {"id": "rotate", "label": "Drehen"})
+	_wheel.open(items)
+
+
+func toggle_wheel() -> void:
+	if _wheel.visible:
+		_wheel.close()
+	else:
+		open_wheel()
+
+
+func _on_wheel_chosen(id: String) -> void:
+	match id:
+		"build":
+			if not _build_panel.visible:
+				toggle_build()
+		"craft":
+			if not _craft_panel.visible:
+				toggle_craft()
+		"chat":
+			chat_requested.emit()
+		"pickup":
+			pickup_pressed.emit()
+		"rotate":
+			rotate_pressed.emit()
+		_:
+			emote_requested.emit(id)
+
+
+## Label of the big context button, e.g. "Reden" or "Ernten".
+func set_primary(text: String) -> void:
+	_primary.text = text if text != "" else "Aktion"
 
 
 func _action_button(parent: Control, text: String, callback: Callable) -> Button:
@@ -167,13 +246,15 @@ func select_item(item: String) -> void:
 
 
 func set_nearby_decor(near: bool) -> void:
+	_near_decor = near
 	var visible_now := near and not is_building()
 	_pickup_btn.visible = visible_now
 	_rotate_btn.visible = visible_now
 
 
-func set_prompt(text: String) -> void:
-	_prompt.text = text
+## key: keyboard hint shown on desktop only (e.g. "F").
+func set_prompt(text: String, key := "") -> void:
+	_prompt.text = text if key == "" or touch else "%s: %s" % [key, text]
 
 
 func show_toast(text: String) -> void:
@@ -188,7 +269,7 @@ func set_inventory(inv: Dictionary) -> void:
 		var qty: int = int(inv.get(item, 0))
 		if qty > 0:
 			lines.append("%s x%d" % [Defs.ITEM_NAMES[item], qty])
-	_inventory_label.text = "Coins: %d\nInventory\n%s" % [int(inv.get(Defs.COINS, 0)), "\n".join(lines) if lines.size() > 0 else "(empty)"]
+	_inventory_label.text = "Münzen: %d\nRucksack\n%s" % [int(inv.get(Defs.COINS, 0)), "\n".join(lines) if lines.size() > 0 else "(leer)"]
 	if _shop and _shop.visible:
 		_refresh_shop()
 	if selected_item != "" and int(inv.get(selected_item, 0)) < 1:
@@ -199,7 +280,7 @@ func set_inventory(inv: Dictionary) -> void:
 		var parts: PackedStringArray = []
 		var affordable := true
 		for item: String in cost:
-			parts.append("%d %s" % [cost[item], Defs.ITEM_NAMES[item].to_lower()])
+			parts.append("%d %s" % [cost[item], Defs.ITEM_NAMES[item]])
 			if int(inv.get(item, 0)) < int(cost[item]):
 				affordable = false
 		var b: Button = _craft_buttons[recipe]
@@ -223,7 +304,7 @@ func _refresh_build_items() -> void:
 		b.focus_mode = Control.FOCUS_NONE
 		b.pressed.connect(select_item.bind(item))
 		_build_items.add_child(b)
-	_build_hint.text = "Pick an item, then Place (P)" if any else "Nothing to place. Craft furniture first (C)."
+	_build_hint.text = "Wähle etwas aus, dann Platzieren" if any else "Nichts zum Aufstellen.\nBastle zuerst Möbel."
 
 
 func set_clock(text: String) -> void:
@@ -309,7 +390,7 @@ func _build_shop() -> void:
 	_shop_title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	header.add_child(_shop_title)
 	var close := Button.new()
-	close.text = "Close"
+	close.text = "Schließen"
 	close.focus_mode = Control.FOCUS_NONE
 	close.pressed.connect(hide_shop)
 	header.add_child(close)
@@ -337,17 +418,17 @@ func _refresh_shop() -> void:
 		c.queue_free()
 	var coins := int(_inv.get(Defs.COINS, 0))
 	if _shop_mode == "buy":
-		_shop_title.text = "Buy  (you have %d coins)" % coins
+		_shop_title.text = "Kaufen  (du hast %d Münzen)" % coins
 		for item: String in Defs.SHOP_CATALOG:
 			var price: int = Defs.SHOP_CATALOG[item]
 			var b := Button.new()
-			b.text = "%s  -  %d coins" % [Defs.ITEM_NAMES[item], price]
+			b.text = "%s  -  %d Münzen" % [Defs.ITEM_NAMES[item], price]
 			b.focus_mode = Control.FOCUS_NONE
 			b.disabled = coins < price
 			b.pressed.connect(func() -> void: buy_requested.emit(item))
 			_shop_list.add_child(b)
 	else:
-		_shop_title.text = "Sell  (you have %d coins)" % coins
+		_shop_title.text = "Verkaufen  (du hast %d Münzen)" % coins
 		var any := false
 		for item: String in Defs.SELL_PRICES:
 			var qty := int(_inv.get(item, 0))
@@ -357,16 +438,16 @@ func _refresh_shop() -> void:
 			var row := HBoxContainer.new()
 			var label := Label.new()
 			label.theme_type_variation = "PanelLabel"
-			label.text = "%s x%d  (%d each)" % [Defs.ITEM_NAMES[item], qty, Defs.SELL_PRICES[item]]
+			label.text = "%s x%d  (je %d)" % [Defs.ITEM_NAMES[item], qty, Defs.SELL_PRICES[item]]
 			label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 			row.add_child(label)
 			var one := Button.new()
-			one.text = "Sell 1"
+			one.text = "1 verkaufen"
 			one.focus_mode = Control.FOCUS_NONE
 			one.pressed.connect(func() -> void: sell_requested.emit(item, 1))
 			row.add_child(one)
 			var all := Button.new()
-			all.text = "Sell all"
+			all.text = "Alle"
 			all.focus_mode = Control.FOCUS_NONE
 			all.pressed.connect(func() -> void: sell_requested.emit(item, qty))
 			row.add_child(all)
@@ -374,7 +455,7 @@ func _refresh_shop() -> void:
 		if not any:
 			var empty := Label.new()
 			empty.theme_type_variation = "PanelLabel"
-			empty.text = "Nothing to sell. Gather apples, wood, stone or fish."
+			empty.text = "Nichts zu verkaufen. Sammle Äpfel,\nHolz, Steine oder Fische."
 			_shop_list.add_child(empty)
 
 

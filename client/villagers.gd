@@ -31,19 +31,19 @@ const DEFS := {
 
 const LINES := {
 	"ole": {
-		"morning": ["Morning! The fish bite best before noon.", "Been out here since dawn. Lovely and quiet."],
-		"day": ["Mara pays 40 coins per fish, you know.", "Craft a rod from 3 wood, then try the shore."],
-		"evening": ["Nothing beats an evening on the plaza.", "Long day. Caught three, lost five."],
+		"morning": ["Moin! Vor Mittag beißen die Fische am besten.", "Ich sitz hier schon seit Sonnenaufgang. Herrlich ruhig."],
+		"day": ["Mara zahlt 40 Münzen für jeden Fisch, wusstest du das?", "Bastel dir eine Angel aus 3 Holz und versuch's am Ufer."],
+		"evening": ["Nichts geht über einen Abend auf dem Dorfplatz.", "Langer Tag. Drei gefangen, fünf verloren."],
 	},
 	"pia": {
-		"morning": ["Good morning! The apples are fresh today.", "Trees grow new apples after a while. Don't pick them bare!"],
-		"day": ["Have you decorated your house yet? Press B to build.", "Flower pots make everything nicer."],
-		"evening": ["The island looks lovely at sunset.", "Lamps glow so nicely when it gets dark."],
+		"morning": ["Guten Morgen! Die Äpfel sind heute ganz frisch.", "Die Bäume tragen nach einer Weile neue Äpfel. Pflück sie nicht ganz leer!"],
+		"day": ["Hast du dein Haus schon eingerichtet? Über „Bauen“ geht das ganz leicht.", "Mit Blumentöpfen sieht alles gleich viel netter aus.", "Hast du die kleinen Wuselwesen gesehen? Die sind so schüchtern!"],
+		"evening": ["Bei Sonnenuntergang ist die Insel am schönsten.", "Wenn es dunkel wird, leuchten die Lampen so gemütlich."],
 	},
 	"mara": {
-		"morning": ["Welcome to my shop! What can I do for you?"],
-		"day": ["Welcome to my shop! What can I do for you?", "Fresh stock today. Have a look!"],
-		"evening": ["Still open for a bit. What do you need?"],
+		"morning": ["Willkommen in meinem Laden! Was darf's sein?"],
+		"day": ["Willkommen in meinem Laden! Was darf's sein?", "Heute gibt's frische Ware. Schau dich ruhig um!"],
+		"evening": ["Ich hab noch ein bisschen offen. Was brauchst du?"],
 	},
 }
 
@@ -134,10 +134,10 @@ func line_for(id: String, inv: Dictionary) -> String:
 	var who: String = DEFS[id]["name"]
 	if is_sleeping(id, h):
 		if id == "mara":
-			return "Zzz... (%s is asleep. The shop opens at %d:00.)" % [who, Defs.SHOP_OPEN_HOUR]
-		return "Zzz... (%s is fast asleep.)" % who
+			return "Zzz ... (%s schläft. Der Laden öffnet um %d Uhr.)" % [who, Defs.SHOP_OPEN_HOUR]
+		return "Zzz ... (%s schläft tief und fest.)" % who
 	if id == "ole" and int(inv.get("fish", 0)) > 0:
-		return "Ooh, a fish! Sell it to Mara or keep it, your call."
+		return "Oh, ein Fisch! Verkauf ihn an Mara oder behalt ihn, wie du magst."
 	var period := "morning" if h < 11.0 else ("day" if h < 18.0 else "evening")
 	var lines: Array = LINES[id][period]
 	var i := int(_line_index.get(id, 0))

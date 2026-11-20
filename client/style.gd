@@ -158,6 +158,20 @@ static func ui_theme() -> Theme:
 	t.set_color("font_color", "LineEdit", TEXT_DARK)
 	t.set_color("font_placeholder_color", "LineEdit", Color(0.5, 0.42, 0.35))
 
+	# Round buttons: the action wheel items, the big context button and the menu button.
+	t.set_type_variation("RoundButton", "Button")
+	t.set_stylebox("normal", "RoundButton", _box(Color(0.96, 0.89, 0.7), border, 999, 3, 8))
+	t.set_stylebox("hover", "RoundButton", _box(Color(0.99, 0.94, 0.78), border, 999, 3, 8))
+	t.set_stylebox("pressed", "RoundButton", _box(Color(0.88, 0.76, 0.52), border, 999, 3, 8))
+	t.set_font_size("font_size", "RoundButton", 24)
+	t.set_type_variation("PrimaryButton", "Button")
+	t.set_stylebox("normal", "PrimaryButton", _box(Color(0.93, 0.62, 0.32), border, 999, 4, 8))
+	t.set_stylebox("hover", "PrimaryButton", _box(Color(0.97, 0.7, 0.4), border, 999, 4, 8))
+	t.set_stylebox("pressed", "PrimaryButton", _box(Color(0.82, 0.52, 0.25), border, 999, 4, 8))
+	t.set_stylebox("disabled", "PrimaryButton", _box(Color(0.85, 0.75, 0.65, 0.7), Color(border, 0.6), 999, 4, 8))
+	t.set_font_size("font_size", "PrimaryButton", 26)
+	t.set_color("font_color", "PrimaryButton", Color(0.25, 0.13, 0.07))
+
 	# Labels float over the 3D world: light text with an ink outline.
 	t.set_color("font_color", "Label", TEXT_LIGHT)
 	t.set_color("font_outline_color", "Label", INK)

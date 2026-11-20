@@ -11,6 +11,7 @@ import {
   SHOP_X,
   SHOP_Z,
   islandOffsetMinutes,
+  label,
   shopIsOpen,
   MAX_DECOR_PER_ISLAND,
   MAX_DECOR_PER_PLAYER,
@@ -68,7 +69,7 @@ export class Island extends DurableObject<Env> {
 
   async fetch(_request: Request): Promise<Response> {
     if (this.ctx.getWebSockets().length >= MAX_PLAYERS) {
-      return new Response("Island is full", { status: 503 });
+      return new Response("Diese Insel ist voll", { status: 503 });
     }
     const pair = new WebSocketPair();
     const [client, server] = Object.values(pair);
@@ -209,7 +210,7 @@ export class Island extends DurableObject<Env> {
     const node = this.layout.find((n) => n.id === id);
     if (!node) return;
     if (Math.hypot(node.x - player.x, node.z - player.z) > INTERACT_RANGE) {
-      this.toast(ws, "Too far away");
+      this.toast(ws, "Zu weit weg");
       return;
     }
     const now = Date.now();
@@ -222,21 +223,21 @@ export class Island extends DurableObject<Env> {
       if (cd[0] <= now) {
         item = "apple";
         cd[0] = now + TREE_FRUIT_COOLDOWN_MS;
-        text = "You picked an apple";
+        text = "Du hast einen Apfel gepflückt";
       } else if (cd[1] <= now) {
         item = "wood";
         cd[1] = now + TREE_WOOD_COOLDOWN_MS;
-        text = "You gathered some wood";
+        text = "Du hast Holz gesammelt";
       }
     } else if (cd[0] <= now) {
       item = "stone";
       qty = Math.random() < 0.25 ? 2 : 1;
       cd[0] = now + ROCK_COOLDOWN_MS;
-      text = qty === 2 ? "You found 2 stones" : "You found a stone";
+      text = qty === 2 ? "Du hast 2 Steine gefunden" : "Du hast einen Stein gefunden";
     }
 
     if (!item) {
-      this.toast(ws, "Nothing to collect right now");
+      this.toast(ws, "Hier gibt es gerade nichts");
       return;
     }
     this.cooldowns[id] = cd;
@@ -249,22 +250,22 @@ export class Island extends DurableObject<Env> {
 
   private async fish(ws: WebSocket, player: Player): Promise<void> {
     if (Math.hypot(player.x, player.z) < SHORE_DISTANCE) {
-      this.toast(ws, "Go to the shore to fish");
+      this.toast(ws, "Zum Angeln musst du ans Ufer");
       return;
     }
     const now = Date.now();
     if ((this.lastFish.get(player.id) ?? 0) + FISH_COOLDOWN_MS > now) return;
     const profile = this.profile(player);
     if (((await profile.inventory()).fishing_rod ?? 0) < 1) {
-      this.toast(ws, "You need a fishing rod (craft one from 3 wood)");
+      this.toast(ws, "Du brauchst eine Angel (aus 3 Holz basteln)");
       return;
     }
     this.lastFish.set(player.id, now);
     if (Math.random() < 0.7) {
       this.send(ws, { t: "inv", inv: await profile.add("fish", 1) });
-      this.toast(ws, "You caught a fish!");
+      this.toast(ws, "Du hast einen Fisch gefangen!");
     } else {
-      this.toast(ws, "Nothing is biting...");
+      this.toast(ws, "Nichts beißt an ...");
     }
   }
 
@@ -273,11 +274,11 @@ export class Island extends DurableObject<Env> {
     if (!cost) return;
     const inv = await this.profile(player).craft(recipe, cost);
     if (!inv) {
-      this.toast(ws, "Missing materials");
+      this.toast(ws, "Dir fehlen Materialien");
       return;
     }
     this.send(ws, { t: "inv", inv });
-    this.toast(ws, `Crafted: ${recipe.replace("_", " ")}`);
+    this.toast(ws, `Gebastelt: ${label(recipe)}`);
   }
 
   // ------------------------------------------------------------ houses and decoration
@@ -325,28 +326,28 @@ export class Island extends DurableObject<Env> {
 
   /** Why (gx, gz) is not a valid place for `player` to decorate, or null if it is fine. */
   private placementProblem(player: Player, gx: number, gz: number): string | null {
-    if (Math.hypot(gx - player.x, gz - player.z) > PLACE_RANGE) return "Too far away";
-    if (this.decor.some((d) => d.gx === gx && d.gz === gz)) return "Something is already there";
+    if (Math.hypot(gx - player.x, gz - player.z) > PLACE_RANGE) return "Zu weit weg";
+    if (this.decor.some((d) => d.gx === gx && d.gz === gz)) return "Da steht schon etwas";
 
     if (gx >= ROOM_REGION_X) {
       const slot = roomSlotAt(gx);
       const house = this.houseBySlot(slot);
-      if (!house || roomSlotAt(player.x) !== slot || player.x < ROOM_REGION_X) return "Not inside this room";
-      if (house.owner !== player.id) return "Only the owner can decorate this room";
+      if (!house || roomSlotAt(player.x) !== slot || player.x < ROOM_REGION_X) return "Du bist nicht in diesem Zimmer";
+      if (house.owner !== player.id) return "Nur die Bewohner dürfen dieses Zimmer einrichten";
       const c = roomCenter(slot);
       if (Math.abs(gx - c.x) > ROOM_PLACE_HALF || Math.abs(gz) > ROOM_PLACE_HALF) return "Outside the room";
       return null;
     }
-    if (player.x >= ROOM_REGION_X) return "Not on the island";
-    if (Math.hypot(gx, gz) > ISLAND_RADIUS - 1.5) return "Too close to the water";
-    if (this.layout.some((n) => Math.hypot(n.x - gx, n.z - gz) < 1.8)) return "Something is in the way";
-    if (Math.hypot(SHOP_X - gx, SHOP_Z - gz) < SHOP_CLEARANCE) return "Too close to the shop";
-    if (PROPS.some((p) => Math.hypot(p.x - gx, p.z - gz) < p.r + 0.8)) return "Something is in the way";
+    if (player.x >= ROOM_REGION_X) return "Du bist nicht auf der Insel";
+    if (Math.hypot(gx, gz) > ISLAND_RADIUS - 1.5) return "Zu nah am Wasser";
+    if (this.layout.some((n) => Math.hypot(n.x - gx, n.z - gz) < 1.8)) return "Da ist etwas im Weg";
+    if (Math.hypot(SHOP_X - gx, SHOP_Z - gz) < SHOP_CLEARANCE) return "Zu nah am Laden";
+    if (PROPS.some((p) => Math.hypot(p.x - gx, p.z - gz) < p.r + 0.8)) return "Da ist etwas im Weg";
     for (let slot = 0; slot < MAX_HOUSES; slot++) {
       const h = houseCenter(slot);
       const d = doorOutside(slot);
       if (Math.hypot(h.x - gx, h.z - gz) < 4.5 || Math.hypot(d.x - gx, d.z - gz) < 2.5) {
-        return "Too close to a house";
+        return "Zu nah an einem Haus";
       }
     }
     return null;
@@ -365,16 +366,16 @@ export class Island extends DurableObject<Env> {
       return;
     }
     if (this.decor.length >= MAX_DECOR_PER_ISLAND) {
-      this.toast(ws, "This island has too much decoration");
+      this.toast(ws, "Auf dieser Insel steht schon zu viel");
       return;
     }
     if (this.decor.filter((d) => d.owner === player.id).length >= MAX_DECOR_PER_PLAYER) {
-      this.toast(ws, "You have placed too many objects");
+      this.toast(ws, "Du hast schon zu viele Dinge aufgestellt");
       return;
     }
     const inv = await this.profile(player).take(item);
     if (!inv) {
-      this.toast(ws, "You do not have that item");
+      this.toast(ws, "Das hast du nicht");
       return;
     }
     const d: Decor = { id: `d${this.nextDecorId++}`, item, gx, gz, rot, owner: player.id };
@@ -389,11 +390,11 @@ export class Island extends DurableObject<Env> {
     const d = this.decor.find((x) => x.id === id);
     if (!d) return null;
     if (Math.hypot(d.gx - player.x, d.gz - player.z) > PLACE_RANGE) {
-      this.toast(ws, "Too far away");
+      this.toast(ws, "Zu weit weg");
       return null;
     }
     if (d.gx >= ROOM_REGION_X && this.houseBySlot(roomSlotAt(d.gx))?.owner !== player.id) {
-      this.toast(ws, "Only the owner can change this room");
+      this.toast(ws, "Nur die Bewohner dürfen hier etwas ändern");
       return null;
     }
     return d;
@@ -424,8 +425,8 @@ export class Island extends DurableObject<Env> {
 
   /** Why the player cannot use the shop right now, or null. */
   private shopProblem(player: Player): string | null {
-    if (Math.hypot(SHOP_X - player.x, SHOP_Z - player.z) > SHOP_RANGE) return "Walk up to the shop counter";
-    if (!shopIsOpen()) return "The shop is closed (open 8:00-22:00)";
+    if (Math.hypot(SHOP_X - player.x, SHOP_Z - player.z) > SHOP_RANGE) return "Geh näher an die Ladentheke";
+    if (!shopIsOpen()) return "Der Laden hat zu (geöffnet 8 bis 22 Uhr)";
     return null;
   }
 
@@ -439,11 +440,11 @@ export class Island extends DurableObject<Env> {
     }
     const inv = await this.profile(player).buy(item, price);
     if (!inv) {
-      this.toast(ws, "Not enough coins");
+      this.toast(ws, "Nicht genug Münzen");
       return;
     }
     this.send(ws, { t: "inv", inv });
-    this.toast(ws, `Bought: ${item.replace("_", " ")} (-${price} coins)`);
+    this.toast(ws, `Gekauft: ${label(item)} (-${price} Münzen)`);
   }
 
   private async sell(ws: WebSocket, player: Player, item: string, qty: number): Promise<void> {
@@ -457,11 +458,11 @@ export class Island extends DurableObject<Env> {
     }
     const inv = await this.profile(player).sell(item, n, price);
     if (!inv) {
-      this.toast(ws, "You do not have that many");
+      this.toast(ws, "So viele hast du nicht");
       return;
     }
     this.send(ws, { t: "inv", inv });
-    this.toast(ws, `Sold ${n} ${item.replace("_", " ")} (+${n * price} coins)`);
+    this.toast(ws, `Verkauft: ${n}x ${label(item)} (+${n * price} Münzen)`);
   }
 
   // ------------------------------------------------------------ helpers
@@ -516,7 +517,7 @@ function cleanId(id: unknown): string {
 
 function cleanName(name: unknown): string {
   const s = String(name ?? "").replace(/[\u0000-\u001f<>]/g, "").trim().slice(0, 16);
-  return s || "Guest";
+  return s || "Gast";
 }
 
 export type { Inventory };

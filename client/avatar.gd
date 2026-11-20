@@ -68,7 +68,7 @@ func say(text: String) -> void:
 
 
 func emote(kind: String) -> void:
-	_speech_label.text = "*%s*" % kind
+	_speech_label.text = Defs.EMOTE_SPEECH.get(kind, "*%s*" % kind)
 	_speech_left = EMOTE_SECONDS
 	_emote_left = EMOTE_SECONDS
 

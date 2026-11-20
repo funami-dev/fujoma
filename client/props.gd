@@ -89,10 +89,10 @@ func _build_signpost(n: Node3D) -> void:
 	n.add_child(post)
 	Style.part(post, Style.cyl(0.07, 0.08, 2.5, 8), DARK_WOOD, Vector3(0, 1.25, 0))
 	var boards := [
-		["To the Moon ->", 20.0, Color(0.95, 0.9, 0.75)],
-		["<- Somewhere else", -65.0, Color(0.75, 0.85, 0.95)],
-		["Tea time ->", 150.0, Color(0.95, 0.75, 0.7)],
-		["Back soon!", 95.0, Color(0.85, 0.92, 0.75)],
+		["Zum Mond ->", 20.0, Color(0.95, 0.9, 0.75)],
+		["<- Irgendwo anders", -65.0, Color(0.75, 0.85, 0.95)],
+		["Teezeit ->", 150.0, Color(0.95, 0.75, 0.7)],
+		["Bin gleich zurück!", 95.0, Color(0.85, 0.92, 0.75)],
 	]
 	for i in boards.size():
 		var b: Array = boards[i]

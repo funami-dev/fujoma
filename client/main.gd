@@ -47,6 +47,7 @@ var _touch_dir := Vector2.ZERO
 
 func _ready() -> void:
 	ThemeDB.fallback_font = Style.font()
+	_setup_ui_scale()
 	_read_params()
 	_load_or_create_guest()
 	_setup_input()
@@ -62,8 +63,17 @@ func _ready() -> void:
 	net.disconnected.connect(_on_disconnected)
 	net.message.connect(_on_message)
 	net.rejected.connect(_on_rejected)
-	status_label.text = "connecting..."
+	status_label.text = "Verbinde ..."
 	net.open("%s/island/%s/ws" % [server_url, island_code])
+
+
+## Scales the 2D UI with the window, so buttons stay finger-sized on high-density phone screens.
+## A smaller base size on touch devices makes everything a bit bigger there. 3D is unaffected.
+func _setup_ui_scale() -> void:
+	var win := get_window()
+	win.content_scale_mode = Window.CONTENT_SCALE_MODE_CANVAS_ITEMS
+	win.content_scale_aspect = Window.CONTENT_SCALE_ASPECT_EXPAND
+	win.content_scale_size = Vector2i(860, 480) if DisplayServer.is_touchscreen_available() else Vector2i(1152, 648)
 
 
 # ---------------------------------------------------------------- identity
@@ -94,10 +104,10 @@ func _load_or_create_guest() -> void:
 	if guest_id == "":
 		guest_id = "%08x%08x" % [randi(), randi()]
 		cfg.set_value("guest", "id", guest_id)
-		cfg.set_value("guest", "name", "Guest%d" % (randi() % 10000))
+		cfg.set_value("guest", "name", "Gast%d" % (randi() % 10000))
 		cfg.set_value("guest", "color", Color.from_hsv(randf(), 0.6, 0.95).to_html(false))
 		cfg.save("user://guest.cfg")
-	guest_name = cfg.get_value("guest", "name", "Guest")
+	guest_name = cfg.get_value("guest", "name", "Gast")
 	guest_color = Color.html(cfg.get_value("guest", "color", "ffffff"))
 	if OS.has_feature("web"):
 		var name_param: Variant = JavaScriptBridge.eval("new URLSearchParams(location.search).get('name') || ''")
@@ -216,7 +226,8 @@ func _build_ui() -> void:
 	layer.add_child(chat_log)
 
 	chat_input = LineEdit.new()
-	chat_input.placeholder_text = "Press Enter to chat"
+	chat_input.placeholder_text = "Nachricht schreiben ..." if DisplayServer.is_touchscreen_available() else "Enter drücken zum Chatten"
+	chat_input.visible = not DisplayServer.is_touchscreen_available()
 	chat_input.max_length = 120
 	chat_input.anchor_top = 1.0
 	chat_input.anchor_bottom = 1.0
@@ -226,20 +237,6 @@ func _build_ui() -> void:
 	chat_input.offset_bottom = -12
 	chat_input.text_submitted.connect(_on_chat_submitted)
 	layer.add_child(chat_input)
-
-	var emote_box := HBoxContainer.new()
-	emote_box.anchor_left = 1.0
-	emote_box.anchor_right = 1.0
-	emote_box.offset_left = -340
-	emote_box.offset_top = 8
-	emote_box.offset_right = -12
-	layer.add_child(emote_box)
-	for kind: String in EMOTES:
-		var b := Button.new()
-		b.text = kind
-		b.focus_mode = Control.FOCUS_NONE
-		b.pressed.connect(_send_emote.bind(kind))
-		emote_box.add_child(b)
 
 	for c in layer.get_children():
 		if c is Control:
@@ -255,6 +252,8 @@ func _build_ui() -> void:
 	hud.craft_requested.connect(func(recipe: String) -> void: net.send({"t": "craft", "recipe": recipe}))
 	hud.buy_requested.connect(func(item: String) -> void: net.send({"t": "buy", "item": item}))
 	hud.sell_requested.connect(func(item: String, qty: int) -> void: net.send({"t": "sell", "item": item, "qty": qty}))
+	hud.emote_requested.connect(_send_emote)
+	hud.chat_requested.connect(_open_chat)
 
 	if DisplayServer.is_touchscreen_available():
 		joystick = Joystick.new()
@@ -270,7 +269,7 @@ func _build_ui() -> void:
 # ---------------------------------------------------------------- network
 
 func _on_connected() -> void:
-	status_label.text = "island: %s" % island_code
+	status_label.text = "Insel: %s" % island_code
 	net.send({"t": "join", "id": guest_id, "secret": guest_secret, "name": guest_name, "color": "#" + guest_color.to_html(false)})
 	_last_sent = Vector3.INF
 
@@ -278,15 +277,15 @@ func _on_connected() -> void:
 func _on_rejected(code: int) -> void:
 	match code:
 		4000:
-			status_label.text = "This guest is open in another tab. Close it and reload."
+			status_label.text = "Du bist schon in einem anderen Tab im Spiel. Schließe ihn und lade neu."
 		4003:
-			status_label.text = "This guest id belongs to another device. Clear site data to start fresh."
+			status_label.text = "Dieser Gast gehört zu einem anderen Gerät. Lösche die Website-Daten, um neu zu starten."
 		_:
-			status_label.text = "Connection refused (%d)" % code
+			status_label.text = "Verbindung abgelehnt (%d)" % code
 
 
 func _on_disconnected() -> void:
-	status_label.text = "disconnected, retrying..."
+	status_label.text = "Verbindung weg, versuche es erneut ..."
 	for id: String in remotes.keys():
 		_remove_remote(id)
 
@@ -330,12 +329,12 @@ func _on_message(d: Dictionary) -> void:
 				wn.set_ready_in(int(d.get("ready_in", 0)))
 		"joined":
 			_add_remote(d["p"])
-			_log("%s joined" % d["p"].get("name", "?"))
+			_log("%s ist da" % d["p"].get("name", "?"))
 			_update_status()
 		"left":
 			var id: String = d.get("id", "")
 			if remotes.has(id):
-				_log("%s left" % remotes[id].get_meta("display_name", "?"))
+				_log("%s ist gegangen" % remotes[id].get_meta("display_name", "?"))
 			_remove_remote(id)
 			_update_status()
 		"pos":
@@ -472,7 +471,7 @@ func _update_ghost() -> void:
 
 func _place() -> void:
 	if not hud.is_building():
-		hud.show_toast("Open Build (B) and pick an item first")
+		hud.show_toast("Öffne zuerst Bauen und wähle etwas aus")
 		return
 	var cell := _target_cell()
 	net.send({"t": "place", "item": hud.selected_item, "gx": cell.x, "gz": cell.y, "rot": build_rot})
@@ -503,7 +502,7 @@ func _pickup() -> void:
 	if dn:
 		net.send({"t": "pickup", "id": dn.decor_id})
 	else:
-		hud.show_toast("Nothing to pick up nearby")
+		hud.show_toast("Hier ist nichts zum Aufheben")
 
 
 ## Teleports the local player and tells everyone to snap instead of gliding.
@@ -518,12 +517,13 @@ func _door_option() -> Dictionary:
 	if _in_room():
 		var slot := Defs.room_slot_at(me.position.x)
 		if me.position.distance_to(Defs.room_exit_spot(slot)) < 2.2:
-			return {"text": "F: leave the house", "go": func() -> void: _teleport(Defs.door_outside(slot))}
+			return {"text": "Haus verlassen", "short": "Hinaus", "go": func() -> void: _teleport(Defs.door_outside(slot))}
 		return {}
 	for hv: HouseView in houses.values():
 		if me.position.distance_to(Defs.door_outside(hv.slot)) < 2.5:
 			return {
-				"text": "F: enter %s's house" % hv.owner_name,
+				"text": "Haus von %s betreten" % hv.owner_name,
+				"short": "Hinein",
 				"go": func() -> void: _teleport(Defs.room_center(hv.slot) + Vector3(0, 0, 4.0)),
 			}
 	return {}
@@ -556,16 +556,23 @@ func _spawn_avatar(id: String, display_name: String, color: Color) -> Avatar:
 
 
 func _update_status() -> void:
-	status_label.text = "island: %s  |  players: %d" % [island_code, remotes.size() + 1]
+	status_label.text = "Insel: %s  |  Spieler: %d" % [island_code, remotes.size() + 1]
 
 
 func _log(line: String) -> void:
 	chat_log.append_text(line + "\n")
 
 
+func _open_chat() -> void:
+	chat_input.visible = true
+	chat_input.grab_focus()
+
+
 func _on_chat_submitted(text: String) -> void:
 	chat_input.clear()
 	chat_input.release_focus()
+	if DisplayServer.is_touchscreen_available():
+		chat_input.visible = false
 	if text.strip_edges() != "":
 		net.send({"t": "chat", "text": text})
 
@@ -580,8 +587,13 @@ func _unhandled_key_input(event: InputEvent) -> void:
 	if not (event is InputEventKey and event.pressed and not event.echo):
 		return
 	if event.keycode == KEY_ENTER:
-		chat_input.grab_focus()
+		_open_chat()
 		get_viewport().set_input_as_handled()
+	elif event.keycode == KEY_TAB:
+		hud.toggle_wheel()
+		get_viewport().set_input_as_handled()
+	elif event.keycode >= KEY_1 and event.keycode <= KEY_4:
+		_send_emote(EMOTES[event.keycode - KEY_1])
 	elif event.physical_keycode == KEY_F:
 		_act()
 	elif event.physical_keycode == KEY_C:
@@ -619,12 +631,15 @@ func _act() -> void:
 	if hud.is_dialogue_open():
 		hud.hide_dialogue()
 		return
+	if hud.is_building():
+		_place()
+		return
 	var door := _door_option()
 	if not door.is_empty():
 		(door["go"] as Callable).call()
 		return
 	if _in_room():
-		hud.show_toast("Use Build (B) to decorate the room")
+		hud.show_toast("Über Bauen kannst du dein Zimmer einrichten")
 		return
 	var npc := villagers.nearest(me.position)
 	if npc != "":
@@ -636,7 +651,7 @@ func _act() -> void:
 	elif _on_shore():
 		net.send({"t": "fish"})
 	else:
-		hud.show_toast("Nothing nearby")
+		hud.show_toast("Hier ist nichts")
 
 
 func _process(delta: float) -> void:
@@ -727,28 +742,45 @@ func _push_out_of_nodes() -> void:
 func _update_prompt() -> void:
 	hud.set_nearby_decor(_nearest_decor() != null)
 	_update_ghost()
+	if hud.is_dialogue_open():
+		hud.set_prompt("")
+		hud.set_primary("Weiter")
+		return
 	var door := _door_option()
 	if hud.is_building():
-		hud.set_prompt("P: place   R: rotate   Esc: cancel")
+		hud.set_prompt("Platzieren (P), Drehen (R), Abbrechen (Esc)" if not hud.touch else "")
+		hud.set_primary("Platzieren")
 		return
 	if not door.is_empty():
-		hud.set_prompt(door["text"])
+		hud.set_prompt(door["text"], "F")
+		hud.set_primary(door["short"])
 		return
 	var npc := "" if _in_room() else villagers.nearest(me.position)
 	if npc != "":
-		hud.set_prompt("F: talk to %s" % villagers.display_name(npc))
+		hud.set_prompt("Mit %s reden" % villagers.display_name(npc), "F")
+		hud.set_primary("Reden")
 		return
 	var n := _nearest_node()
 	if n and not _in_room():
-		var what := "pick fruit / gather wood" if n.kind == "tree" else "take stone"
-		if n.is_ready() or n.kind == "tree":
-			hud.set_prompt("F: %s" % what)
+		if n.kind == "tree":
+			hud.set_prompt("Äpfel pflücken / Holz sammeln", "F")
+			hud.set_primary("Ernten")
+		elif n.is_ready():
+			hud.set_prompt("Stein aufheben", "F")
+			hud.set_primary("Stein\nholen")
 		else:
-			hud.set_prompt("(%s: nothing right now)" % n.kind)
+			hud.set_prompt("Der Stein ist gerade leer")
+			hud.set_primary("")
 	elif _on_shore() and not _in_room():
-		hud.set_prompt("F: fish" if hud.has_item("fishing_rod") else "Shore: craft a fishing rod to fish")
+		if hud.has_item("fishing_rod"):
+			hud.set_prompt("Angeln", "F")
+			hud.set_primary("Angeln")
+		else:
+			hud.set_prompt("Zum Angeln brauchst du eine Angel (3 Holz)")
+			hud.set_primary("")
 	else:
 		hud.set_prompt("")
+		hud.set_primary("")
 
 
 # ---------------------------------------------------------------- villagers and shop
@@ -758,9 +790,9 @@ func _talk_to(npc: String) -> void:
 	var text := villagers.line_for(npc, hud.get_inventory())
 	if npc == "mara" and not villagers.is_sleeping(npc) and IslandClock.shop_is_open():
 		hud.show_dialogue(who, text, [
-			{"label": "Buy", "action": func() -> void: hud.show_shop("buy")},
-			{"label": "Sell", "action": func() -> void: hud.show_shop("sell")},
-			{"label": "Bye", "action": Callable()},
+			{"label": "Kaufen", "action": func() -> void: hud.show_shop("buy")},
+			{"label": "Verkaufen", "action": func() -> void: hud.show_shop("sell")},
+			{"label": "Tschüss", "action": Callable()},
 		])
 	else:
 		hud.show_dialogue(who, text)
@@ -816,7 +848,7 @@ func _sky_color(h: float) -> Color:
 func _update_daylight() -> void:
 	var h := IslandClock.hour()
 	hud.set_clock(IslandClock.label())
-	shop_sign.text = "Mara's Shop\n%s" % ("Open until 22:00" if IslandClock.shop_is_open() else "Closed (opens 8:00)")
+	shop_sign.text = "Maras Laden\n%s" % ("Geöffnet bis 22 Uhr" if IslandClock.shop_is_open() else "Geschlossen (ab 8 Uhr)")
 
 	# Sun arc from 6:00 to 20:00 with a golden hour when it is low; a dim blue moon at night.
 	var day := clampf(sin(PI * (h - 6.0) / 14.0), 0.0, 1.0) if h > 6.0 and h < 20.0 else 0.0

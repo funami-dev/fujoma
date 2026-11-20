@@ -61,6 +61,24 @@ export const ITEMS = [
   "fruit_basket", "campfire", "chair", "table", "lamp", "bed", "flower_pot",
 ] as const;
 
+/** German display names, used in server messages. Mirrored in client/defs.gd. */
+export const ITEM_LABELS: Record<string, string> = {
+  apple: "Apfel",
+  wood: "Holz",
+  stone: "Stein",
+  fish: "Fisch",
+  fishing_rod: "Angel",
+  fruit_basket: "Obstkorb",
+  campfire: "Lagerfeuer",
+  chair: "Stuhl",
+  table: "Tisch",
+  lamp: "Lampe",
+  bed: "Bett",
+  flower_pot: "Blumentopf",
+};
+
+export const label = (item: string): string => ITEM_LABELS[item] ?? item;
+
 /** Items that can be placed in the world. */
 export const PLACEABLE: readonly string[] = ["fruit_basket", "campfire", "chair", "table", "lamp", "bed", "flower_pot"];
 
