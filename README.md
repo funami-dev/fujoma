@@ -11,6 +11,9 @@ A 3D browser game in the style of Animal Crossing with real-time multiplayer.
 - Guest access first, accounts later
 - Placeholder assets for now, later asset packs or custom models
 - Houses: every guest gets a house (up to 12 per island). Interiors are rooms far away in the same world; anyone can visit, only the owner decorates inside. Outdoors, anyone can place and pick up furniture.
+- Island time follows Europe/Berlin for everyone (day/night, shop hours 8:00-22:00, villager routines). The server reports the current UTC offset, so daylight saving time is handled. `?hour=21.5` overrides the clock on the client only (for testing lighting and routines).
+- Economy: coins live in the guest profile (100 starting coins). Mara's shop buys gathered and crafted items and sells furniture; prices and opening hours are enforced by the server.
+- Villagers (Mara, Ole, Pia) follow routines computed from island time on each client; their dialogue is client-side.
 - MVP: real-time events (Easter, Halloween), gathering and crafting, island decoration, economy and NPCs
 
 See [docs/phase-plan.md](docs/phase-plan.md) for the roadmap.

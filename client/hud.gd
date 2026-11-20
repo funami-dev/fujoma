@@ -8,6 +8,8 @@ signal build_item_selected(item: String)
 signal place_pressed
 signal rotate_pressed
 signal pickup_pressed
+signal buy_requested(item: String)
+signal sell_requested(item: String, qty: int)
 
 var _inventory_label: Label
 var _prompt: Label
@@ -22,12 +24,31 @@ var _build_hint: Label
 var _pickup_btn: Button
 var _rotate_btn: Button
 var selected_item := ""
+var _clock: Label
+var _dialogue: PanelContainer
+var _dialogue_name: Label
+var _dialogue_text: Label
+var _dialogue_options: HBoxContainer
+var _shop: PanelContainer
+var _shop_title: Label
+var _shop_list: VBoxContainer
+var _shop_mode := ""
 
 
 func _ready() -> void:
 	_inventory_label = Label.new()
 	_inventory_label.position = Vector2(12, 34)
 	add_child(_inventory_label)
+
+	_clock = Label.new()
+	_clock.anchor_left = 0.5
+	_clock.anchor_right = 0.5
+	_clock.offset_left = -60
+	_clock.offset_right = 60
+	_clock.offset_top = 8
+	_clock.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_clock.add_theme_font_size_override("font_size", 22)
+	add_child(_clock)
 
 	_prompt = Label.new()
 	_prompt.anchor_left = 0.5
@@ -88,6 +109,9 @@ func _ready() -> void:
 	build_box.add_child(place_row)
 	_action_button(place_row, "Place (P)", func() -> void: place_pressed.emit())
 	_action_button(place_row, "Rotate (R)", func() -> void: rotate_pressed.emit())
+
+	_build_dialogue()
+	_build_shop()
 
 	_craft_panel = PanelContainer.new()
 	_craft_panel.anchor_left = 1.0
@@ -160,7 +184,9 @@ func set_inventory(inv: Dictionary) -> void:
 		var qty: int = int(inv.get(item, 0))
 		if qty > 0:
 			lines.append("%s x%d" % [Defs.ITEM_NAMES[item], qty])
-	_inventory_label.text = "Inventory\n" + ("\n".join(lines) if lines.size() > 0 else "(empty)")
+	_inventory_label.text = "Coins: %d\nInventory\n%s" % [int(inv.get(Defs.COINS, 0)), "\n".join(lines) if lines.size() > 0 else "(empty)"]
+	if _shop and _shop.visible:
+		_refresh_shop()
 	if selected_item != "" and int(inv.get(selected_item, 0)) < 1:
 		select_item("")
 	_refresh_build_items()
@@ -194,6 +220,157 @@ func _refresh_build_items() -> void:
 		b.pressed.connect(select_item.bind(item))
 		_build_items.add_child(b)
 	_build_hint.text = "Pick an item, then Place (P)" if any else "Nothing to place. Craft furniture first (C)."
+
+
+func set_clock(text: String) -> void:
+	_clock.text = text
+
+
+# ---------------------------------------------------------------- dialogue
+
+func _build_dialogue() -> void:
+	_dialogue = PanelContainer.new()
+	_dialogue.anchor_left = 0.5
+	_dialogue.anchor_right = 0.5
+	_dialogue.anchor_top = 1.0
+	_dialogue.anchor_bottom = 1.0
+	_dialogue.offset_left = -260
+	_dialogue.offset_right = 260
+	_dialogue.offset_top = -230
+	_dialogue.offset_bottom = -120
+	_dialogue.visible = false
+	add_child(_dialogue)
+	var box := VBoxContainer.new()
+	_dialogue.add_child(box)
+	_dialogue_name = Label.new()
+	_dialogue_name.add_theme_color_override("font_color", Color(1.0, 0.85, 0.4))
+	box.add_child(_dialogue_name)
+	_dialogue_text = Label.new()
+	_dialogue_text.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_dialogue_text.custom_minimum_size = Vector2(500, 0)
+	box.add_child(_dialogue_text)
+	_dialogue_options = HBoxContainer.new()
+	_dialogue_options.alignment = BoxContainer.ALIGNMENT_END
+	box.add_child(_dialogue_options)
+
+
+## options: Array of {"label": String, "action": Callable}. With no options, a single "OK" closes it.
+func show_dialogue(speaker: String, text: String, options: Array = []) -> void:
+	_dialogue_name.text = speaker
+	_dialogue_text.text = text
+	for c in _dialogue_options.get_children():
+		c.queue_free()
+	if options.is_empty():
+		options = [{"label": "OK", "action": Callable()}]
+	for opt: Dictionary in options:
+		var b := Button.new()
+		b.text = opt["label"]
+		b.focus_mode = Control.FOCUS_NONE
+		var action: Callable = opt["action"]
+		b.pressed.connect(func() -> void:
+			hide_dialogue()
+			if action.is_valid():
+				action.call())
+		_dialogue_options.add_child(b)
+	_dialogue.visible = true
+
+
+func hide_dialogue() -> void:
+	_dialogue.visible = false
+
+
+func is_dialogue_open() -> bool:
+	return _dialogue.visible
+
+
+# ---------------------------------------------------------------- shop
+
+func _build_shop() -> void:
+	_shop = PanelContainer.new()
+	_shop.anchor_left = 0.5
+	_shop.anchor_right = 0.5
+	_shop.offset_left = -220
+	_shop.offset_right = 220
+	_shop.offset_top = 60
+	_shop.visible = false
+	add_child(_shop)
+	var box := VBoxContainer.new()
+	_shop.add_child(box)
+	var header := HBoxContainer.new()
+	box.add_child(header)
+	_shop_title = Label.new()
+	_shop_title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	header.add_child(_shop_title)
+	var close := Button.new()
+	close.text = "Close"
+	close.focus_mode = Control.FOCUS_NONE
+	close.pressed.connect(hide_shop)
+	header.add_child(close)
+	_shop_list = VBoxContainer.new()
+	box.add_child(_shop_list)
+
+
+## mode: "buy" or "sell"
+func show_shop(mode: String) -> void:
+	_shop_mode = mode
+	_shop.visible = true
+	_refresh_shop()
+
+
+func hide_shop() -> void:
+	_shop.visible = false
+
+
+func is_shop_open() -> bool:
+	return _shop.visible
+
+
+func _refresh_shop() -> void:
+	for c in _shop_list.get_children():
+		c.queue_free()
+	var coins := int(_inv.get(Defs.COINS, 0))
+	if _shop_mode == "buy":
+		_shop_title.text = "Buy  (you have %d coins)" % coins
+		for item: String in Defs.SHOP_CATALOG:
+			var price: int = Defs.SHOP_CATALOG[item]
+			var b := Button.new()
+			b.text = "%s  -  %d coins" % [Defs.ITEM_NAMES[item], price]
+			b.focus_mode = Control.FOCUS_NONE
+			b.disabled = coins < price
+			b.pressed.connect(func() -> void: buy_requested.emit(item))
+			_shop_list.add_child(b)
+	else:
+		_shop_title.text = "Sell  (you have %d coins)" % coins
+		var any := false
+		for item: String in Defs.SELL_PRICES:
+			var qty := int(_inv.get(item, 0))
+			if qty < 1:
+				continue
+			any = true
+			var row := HBoxContainer.new()
+			var label := Label.new()
+			label.text = "%s x%d  (%d each)" % [Defs.ITEM_NAMES[item], qty, Defs.SELL_PRICES[item]]
+			label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+			row.add_child(label)
+			var one := Button.new()
+			one.text = "Sell 1"
+			one.focus_mode = Control.FOCUS_NONE
+			one.pressed.connect(func() -> void: sell_requested.emit(item, 1))
+			row.add_child(one)
+			var all := Button.new()
+			all.text = "Sell all"
+			all.focus_mode = Control.FOCUS_NONE
+			all.pressed.connect(func() -> void: sell_requested.emit(item, qty))
+			row.add_child(all)
+			_shop_list.add_child(row)
+		if not any:
+			var empty := Label.new()
+			empty.text = "Nothing to sell. Gather apples, wood, stone or fish."
+			_shop_list.add_child(empty)
+
+
+func get_inventory() -> Dictionary:
+	return _inv
 
 
 func has_item(item: String) -> bool:

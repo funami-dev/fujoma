@@ -16,6 +16,24 @@ const ITEM_NAMES := {
 	"flower_pot": "Flower pot",
 }
 
+const COINS := "coins"
+
+## Mirrors SELL_PRICES and SHOP_CATALOG in server/src/protocol.ts.
+const SELL_PRICES := {
+	"apple": 10, "wood": 5, "stone": 8, "fish": 40, "fishing_rod": 20, "fruit_basket": 50,
+	"campfire": 30, "chair": 15, "table": 30, "lamp": 25, "bed": 45, "flower_pot": 25,
+}
+const SHOP_CATALOG := {
+	"fishing_rod": 60, "chair": 60, "flower_pot": 80, "lamp": 120, "table": 140, "bed": 250,
+}
+const SHOP_POS := Vector3(0, 0, -5)
+const SHOP_RANGE := 4.5  # server allows 5
+const SHOP_CLEARANCE := 3.0
+const SHOP_COLLISION_CENTER := Vector3(0, 0, -5.2)
+const SHOP_COLLISION_RADIUS := 1.7
+const SHOP_OPEN_HOUR := 8
+const SHOP_CLOSE_HOUR := 22
+
 const PLACEABLE := ["fruit_basket", "campfire", "chair", "table", "lamp", "bed", "flower_pot"]
 
 const RECIPES := {

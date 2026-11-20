@@ -20,6 +20,11 @@ var net: Net
 var me: Avatar
 var remotes: Dictionary = {}  # id -> Avatar
 var camera: Camera3D
+var world_env: Environment
+var sun: DirectionalLight3D
+var villagers: Villagers
+var shop_sign: Label3D
+var _daylight_timer := 0.0
 var cam_yaw := 0.0
 var _send_timer := 0.0
 var _last_sent := Vector3.INF
@@ -66,6 +71,9 @@ func _read_params() -> void:
 	var code: Variant = JavaScriptBridge.eval("new URLSearchParams(location.search).get('island') || ''")
 	if code is String and (code as String).is_valid_identifier():
 		island_code = code
+	var hour_param: Variant = JavaScriptBridge.eval("new URLSearchParams(location.search).get('hour') || ''")
+	if hour_param is String and (hour_param as String).is_valid_float():
+		IslandClock.override_hour = clampf(float(hour_param), 0.0, 23.99)
 	var server: Variant = JavaScriptBridge.eval("new URLSearchParams(location.search).get('server') || ''")
 	if server is String and (server as String).begins_with("ws"):
 		server_url = server
@@ -126,6 +134,7 @@ func _setup_input() -> void:
 func _build_world() -> void:
 	var env := WorldEnvironment.new()
 	var e := Environment.new()
+	world_env = e
 	e.background_mode = Environment.BG_COLOR
 	e.background_color = Color(0.53, 0.81, 0.92)
 	e.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
@@ -134,9 +143,13 @@ func _build_world() -> void:
 	env.environment = e
 	add_child(env)
 
-	var sun := DirectionalLight3D.new()
+	sun = DirectionalLight3D.new()
 	sun.rotation_degrees = Vector3(-55, 30, 0)
 	add_child(sun)
+
+	_build_shop_stall()
+	villagers = Villagers.new()
+	add_child(villagers)
 
 	_add_mesh(_cylinder(ISLAND_RADIUS + 3.0, 2.0), Color(0.93, 0.85, 0.6), Vector3(0, -1.05, 0))  # sand
 	_add_mesh(_cylinder(ISLAND_RADIUS, 2.0), Color(0.45, 0.75, 0.38), Vector3(0, -1.0, 0))  # grass
@@ -227,6 +240,8 @@ func _build_ui() -> void:
 	hud.pickup_pressed.connect(_pickup)
 	hud.build_item_selected.connect(_on_build_item_selected)
 	hud.craft_requested.connect(func(recipe: String) -> void: net.send({"t": "craft", "recipe": recipe}))
+	hud.buy_requested.connect(func(item: String) -> void: net.send({"t": "buy", "item": item}))
+	hud.sell_requested.connect(func(item: String, qty: int) -> void: net.send({"t": "sell", "item": item, "qty": qty}))
 
 	if DisplayServer.is_touchscreen_available():
 		joystick = Joystick.new()
@@ -277,6 +292,7 @@ func _on_message(d: Dictionary) -> void:
 			for dd: Dictionary in d.get("decor", []):
 				_add_decor(dd)
 			hud.set_inventory(d.get("inv", {}))
+			IslandClock.offset_minutes = int(d.get("tz_offset", IslandClock.offset_minutes))
 			_update_status()
 		"inv":
 			hud.set_inventory(d.get("inv", {}))
@@ -396,6 +412,8 @@ func _cell_valid(cell: Vector2i) -> bool:
 		var c := Defs.room_center(mine.slot)
 		return absf(cell.x - c.x) <= Defs.ROOM_PLACE_HALF and absf(cell.y) <= Defs.ROOM_PLACE_HALF
 	if Vector2(cell).length() > Defs.ISLAND_RADIUS - 1.5:
+		return false
+	if Vector2(cell).distance_to(Vector2(Defs.SHOP_POS.x, Defs.SHOP_POS.z)) < Defs.SHOP_CLEARANCE:
 		return false
 	for n: WorldNode in nodes.values():
 		if Vector2(n.position.x, n.position.z).distance_to(Vector2(cell)) < 1.8:
@@ -562,6 +580,8 @@ func _unhandled_key_input(event: InputEvent) -> void:
 		_pickup()
 	elif event.keycode == KEY_ESCAPE:
 		hud.select_item("")
+		hud.hide_dialogue()
+		hud.hide_shop()
 
 
 func _nearest_node() -> WorldNode:
@@ -580,12 +600,19 @@ func _on_shore() -> bool:
 
 
 func _act() -> void:
+	if hud.is_dialogue_open():
+		hud.hide_dialogue()
+		return
 	var door := _door_option()
 	if not door.is_empty():
 		(door["go"] as Callable).call()
 		return
 	if _in_room():
 		hud.show_toast("Use Build (B) to decorate the room")
+		return
+	var npc := villagers.nearest(me.position)
+	if npc != "":
+		_talk_to(npc)
 		return
 	var n := _nearest_node()
 	if n:
@@ -625,6 +652,13 @@ func _process(delta: float) -> void:
 		_push_out_of_nodes()
 
 	_update_prompt()
+	villagers.update(me.position, delta)
+	_daylight_timer -= delta
+	if _daylight_timer <= 0.0:
+		_daylight_timer = 0.5
+		_update_daylight()
+	if hud.is_shop_open() and me.position.distance_to(Defs.SHOP_POS) > Defs.SHOP_RANGE + 1.5:
+		hud.hide_shop()
 
 	_send_timer += delta
 	if _send_timer >= POS_SEND_INTERVAL:
@@ -652,6 +686,10 @@ func _push_out_of_nodes() -> void:
 		ho.y = 0
 		if ho.length() < Defs.HOUSE_COLLISION_RADIUS:
 			me.position = hv.position + ho.normalized() * Defs.HOUSE_COLLISION_RADIUS
+	var so := me.position - Defs.SHOP_COLLISION_CENTER
+	so.y = 0
+	if so.length() < Defs.SHOP_COLLISION_RADIUS:
+		me.position = Defs.SHOP_COLLISION_CENTER + so.normalized() * Defs.SHOP_COLLISION_RADIUS
 	for n: WorldNode in nodes.values():
 		var offset := me.position - n.position
 		offset.y = 0
@@ -672,6 +710,10 @@ func _update_prompt() -> void:
 	if not door.is_empty():
 		hud.set_prompt(door["text"])
 		return
+	var npc := "" if _in_room() else villagers.nearest(me.position)
+	if npc != "":
+		hud.set_prompt("F: talk to %s" % villagers.display_name(npc))
+		return
 	var n := _nearest_node()
 	if n and not _in_room():
 		var what := "pick fruit / gather wood" if n.kind == "tree" else "take stone"
@@ -683,3 +725,87 @@ func _update_prompt() -> void:
 		hud.set_prompt("F: fish" if hud.has_item("fishing_rod") else "Shore: craft a fishing rod to fish")
 	else:
 		hud.set_prompt("")
+
+
+# ---------------------------------------------------------------- villagers and shop
+
+func _talk_to(npc: String) -> void:
+	var who := villagers.display_name(npc)
+	var text := villagers.line_for(npc, hud.get_inventory())
+	if npc == "mara" and not villagers.is_sleeping(npc) and IslandClock.shop_is_open():
+		hud.show_dialogue(who, text, [
+			{"label": "Buy", "action": func() -> void: hud.show_shop("buy")},
+			{"label": "Sell", "action": func() -> void: hud.show_shop("sell")},
+			{"label": "Bye", "action": Callable()},
+		])
+	else:
+		hud.show_dialogue(who, text)
+
+
+func _build_shop_stall() -> void:
+	var stall := Node3D.new()
+	stall.position = Defs.SHOP_POS
+	add_child(stall)
+	var wood := Color(0.62, 0.42, 0.24)
+	var parts := [
+		[Vector3(3.0, 1.0, 0.8), wood, Vector3(0, 0.5, 0)],  # counter
+		[Vector3(3.2, 0.08, 1.0), Color(0.9, 0.85, 0.7), Vector3(0, 1.04, 0)],  # counter top
+		[Vector3(0.15, 2.6, 0.15), wood, Vector3(-1.45, 1.3, -1.6)],
+		[Vector3(0.15, 2.6, 0.15), wood, Vector3(1.45, 1.3, -1.6)],
+		[Vector3(0.15, 2.6, 0.15), wood, Vector3(-1.45, 1.3, 0.3)],
+		[Vector3(0.15, 2.6, 0.15), wood, Vector3(1.45, 1.3, 0.3)],
+		[Vector3(3.4, 0.12, 2.4), Color(0.85, 0.2, 0.2), Vector3(0, 2.65, -0.65)],  # canopy
+		[Vector3(3.4, 0.14, 0.5), Color(0.97, 0.97, 0.97), Vector3(0, 2.62, 0.45)],  # canopy trim
+	]
+	for p: Array in parts:
+		var mi := MeshInstance3D.new()
+		var b := BoxMesh.new()
+		b.size = p[0]
+		mi.mesh = b
+		mi.material_override = _mat(p[1])
+		mi.position = p[2]
+		stall.add_child(mi)
+	shop_sign = Label3D.new()
+	shop_sign.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+	shop_sign.pixel_size = 0.012
+	shop_sign.font_size = 40
+	shop_sign.outline_size = 8
+	shop_sign.position = Vector3(0, 3.4, -0.4)
+	stall.add_child(shop_sign)
+
+
+# ---------------------------------------------------------------- day and night
+
+const SKY_KEYS := [
+	[0.0, Color(0.03, 0.05, 0.13)], [5.0, Color(0.04, 0.06, 0.15)], [6.5, Color(0.95, 0.62, 0.48)],
+	[8.0, Color(0.53, 0.81, 0.92)], [17.5, Color(0.53, 0.81, 0.92)], [19.5, Color(0.95, 0.52, 0.38)],
+	[21.0, Color(0.05, 0.07, 0.18)], [24.0, Color(0.03, 0.05, 0.13)],
+]
+
+
+func _sky_color(h: float) -> Color:
+	for i in SKY_KEYS.size() - 1:
+		var a: Array = SKY_KEYS[i]
+		var b: Array = SKY_KEYS[i + 1]
+		if h >= a[0] and h <= b[0]:
+			return (a[1] as Color).lerp(b[1], (h - a[0]) / (b[0] - a[0]))
+	return SKY_KEYS[0][1]
+
+
+func _update_daylight() -> void:
+	var h := IslandClock.hour()
+	hud.set_clock(IslandClock.label())
+	shop_sign.text = "Mara's Shop\n%s" % ("Open until 22:00" if IslandClock.shop_is_open() else "Closed (opens 8:00)")
+
+	# Sun arc from 6:00 to 20:00; a dim blue moon light at night.
+	var day := clampf(sin(PI * (h - 6.0) / 14.0), 0.0, 1.0) if h > 6.0 and h < 20.0 else 0.0
+	var f := clampf(day * 3.0, 0.0, 1.0)
+	world_env.background_color = _sky_color(h)
+	world_env.ambient_light_energy = 0.3 + 0.35 * f
+	world_env.ambient_light_color = Color(0.35, 0.4, 0.65).lerp(Color(0.7, 0.75, 0.85), f)
+	var warm := Color(1.0, 0.7, 0.5).lerp(Color(1.0, 0.96, 0.88), clampf(day * 2.0, 0.0, 1.0))
+	sun.light_color = Color(0.55, 0.65, 1.0).lerp(warm, f)
+	sun.light_energy = 0.2 + 0.8 * f
+	var elevation := lerpf(40.0, 15.0 + 60.0 * day, f)
+	var azimuth := lerpf(-60.0, 240.0, clampf((h - 6.0) / 14.0, 0.0, 1.0)) if f > 0.0 else 30.0
+	sun.rotation_degrees = Vector3(-elevation, azimuth, 0)

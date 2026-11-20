@@ -20,11 +20,13 @@ export type ClientMessage =
   | { t: "craft"; recipe: string }
   | { t: "place"; item: string; gx: number; gz: number; rot: number }
   | { t: "pickup"; id: string }
-  | { t: "rotate"; id: string };
+  | { t: "rotate"; id: string }
+  | { t: "buy"; item: string }
+  | { t: "sell"; item: string; qty: number };
 
 // server -> client
 export type ServerMessage =
-  | { t: "welcome"; you: string; players: Player[]; nodes: WorldNode[]; inv: Inventory; houses: House[]; decor: Decor[] }
+  | { t: "welcome"; you: string; players: Player[]; nodes: WorldNode[]; inv: Inventory; houses: House[]; decor: Decor[]; tz_offset: number }
   | { t: "inv"; inv: Inventory }
   | { t: "node"; id: string; ready_in: number }
   | { t: "toast"; text: string }
@@ -130,4 +132,71 @@ export function roomCenter(slot: number): { x: number; z: number } {
 
 export function roomSlotAt(x: number): number {
   return Math.round((x - ROOM_BASE_X) / ROOM_SPACING);
+}
+
+// ---------------------------------------------------------------- economy and island time
+
+/** All islands run on this clock (day/night, shop hours, villager routines). */
+export const ISLAND_TIMEZONE = "Europe/Berlin";
+
+export const COINS = "coins";
+export const STARTING_COINS = 100;
+
+export const SHOP_X = 0;
+export const SHOP_Z = -5;
+export const SHOP_RANGE = 5;
+export const SHOP_CLEARANCE = 3; // no furniture this close to the stall
+export const SHOP_OPEN_HOUR = 8;
+export const SHOP_CLOSE_HOUR = 22;
+
+/** What the shop pays per item. */
+export const SELL_PRICES: Inventory = {
+  apple: 10,
+  wood: 5,
+  stone: 8,
+  fish: 40,
+  fishing_rod: 20,
+  fruit_basket: 50,
+  campfire: 30,
+  chair: 15,
+  table: 30,
+  lamp: 25,
+  bed: 45,
+  flower_pot: 25,
+};
+
+/** What the shop sells, and for how much. */
+export const SHOP_CATALOG: Inventory = {
+  fishing_rod: 60,
+  chair: 60,
+  flower_pot: 80,
+  lamp: 120,
+  table: 140,
+  bed: 250,
+};
+
+/** Minutes to add to UTC to get island time, for the given instant (handles daylight saving time). */
+export function islandOffsetMinutes(now: Date = new Date()): number {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: ISLAND_TIMEZONE,
+    hourCycle: "h23",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).formatToParts(now);
+  const get = (t: string): number => Number(parts.find((p) => p.type === t)?.value);
+  const asUtc = Date.UTC(get("year"), get("month") - 1, get("day"), get("hour"), get("minute"));
+  return Math.round((asUtc - Math.floor(now.getTime() / 60000) * 60000) / 60000);
+}
+
+export function islandHour(now: Date = new Date()): number {
+  const minutes = Math.floor(now.getTime() / 60000) + islandOffsetMinutes(now);
+  return (((minutes % 1440) + 1440) % 1440) / 60;
+}
+
+export function shopIsOpen(now: Date = new Date()): boolean {
+  const h = islandHour(now);
+  return h >= SHOP_OPEN_HOUR && h < SHOP_CLOSE_HOUR;
 }

@@ -39,12 +39,27 @@ var _emote_left := 0.0
 var _last_position := Vector3.INF
 
 
-func setup(id: String, display_name: String, _color: Color) -> void:
+var _status_text := ""
+
+
+## skin: index into SKIN_PATHS, or -1 to pick one from the id.
+func setup(id: String, display_name: String, _color: Color, skin := -1) -> void:
 	player_id = id
-	_build_model()
+	_build_model(skin)
 	_name_label = _make_label(display_name, 2.3, 40)
 	_speech_label = _make_label("", 3.0, 40)
 	_speech_label.modulate = Color(1, 1, 0.6)
+
+
+## Persistent text above the head (e.g. "Zzz"), shown whenever nothing is being said.
+func set_status(text: String) -> void:
+	_status_text = text
+	if _speech_left <= 0.0:
+		_speech_label.text = text
+
+
+func set_name_color(color: Color) -> void:
+	_name_label.modulate = color
 
 
 func say(text: String) -> void:
@@ -58,7 +73,7 @@ func emote(kind: String) -> void:
 	_emote_left = EMOTE_SECONDS
 
 
-func _build_model() -> void:
+func _build_model(skin: int) -> void:
 	if _model_scene == null:
 		_model_scene = load(MODEL_PATH)
 	_model = _model_scene.instantiate()
@@ -67,9 +82,9 @@ func _build_model() -> void:
 	add_child(_model)
 
 	# The skin is picked from the player id so everyone looks the same on every client.
-	var skin: Texture2D = load(SKIN_PATHS[absi(player_id.hash()) % SKIN_PATHS.size()])
+	var skin_index := skin if skin >= 0 else absi(player_id.hash()) % SKIN_PATHS.size()
 	var mat := StandardMaterial3D.new()
-	mat.albedo_texture = skin
+	mat.albedo_texture = load(SKIN_PATHS[skin_index])
 	mat.roughness = 0.9
 	for mi in _model.find_children("*", "MeshInstance3D", true, false):
 		(mi as MeshInstance3D).material_override = mat
@@ -125,7 +140,7 @@ func _process(delta: float) -> void:
 	if _speech_left > 0.0:
 		_speech_left -= delta
 		if _speech_left <= 0.0:
-			_speech_label.text = ""
+			_speech_label.text = _status_text
 	if _emote_left > 0.0:
 		_emote_left -= delta
 
