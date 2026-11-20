@@ -12,6 +12,18 @@ import {
   SHOP_Z,
   islandOffsetMinutes,
   label,
+  GROUND_COST,
+  GROUND_KINDS,
+  GROUND_NEEDS_SHOVEL,
+  MAX_GROUND_CELLS,
+  MAX_PLANTS,
+  PLANTS,
+  growPlant,
+  islandDay,
+  nextIslandMidnight,
+  plantForSeed,
+  type GroundKind,
+  type PlantState,
   shopIsOpen,
   MAX_DECOR_PER_ISLAND,
   MAX_DECOR_PER_PLAYER,
@@ -56,6 +68,8 @@ export class Island extends DurableObject<Env> {
   private decor: Decor[] = [];
   private houses: House[] = [];
   private nextDecorId = 1;
+  private ground: Record<string, GroundKind> = {}; // "gx,gz" -> kind
+  private plants: Record<string, PlantState> = {}; // "gx,gz" -> plant
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
@@ -64,6 +78,9 @@ export class Island extends DurableObject<Env> {
       this.decor = (await ctx.storage.get<Decor[]>("decor")) ?? [];
       this.houses = (await ctx.storage.get<House[]>("houses")) ?? [];
       this.nextDecorId = (await ctx.storage.get<number>("nextDecorId")) ?? 1;
+      this.ground = (await ctx.storage.get<Record<string, GroundKind>>("ground")) ?? {};
+      this.plants = (await ctx.storage.get<Record<string, PlantState>>("plants")) ?? {};
+      if ((await ctx.storage.getAlarm()) === null) await ctx.storage.setAlarm(nextIslandMidnight());
     });
   }
 
@@ -140,6 +157,18 @@ export class Island extends DurableObject<Env> {
       case "sell":
         await this.sell(ws, player, String(msg.item), Number(msg.qty));
         break;
+      case "ground":
+        await this.setGround(ws, player, msg.gx, msg.gz, String(msg.kind));
+        break;
+      case "sow":
+        await this.sow(ws, player, msg.gx, msg.gz, String(msg.seed));
+        break;
+      case "water":
+        await this.water(ws, player, msg.gx, msg.gz);
+        break;
+      case "harvest":
+        await this.harvest(ws, player, msg.gx, msg.gz);
+        break;
     }
   }
 
@@ -201,6 +230,11 @@ export class Island extends DurableObject<Env> {
       houses: this.houses,
       decor: this.decor,
       tz_offset: islandOffsetMinutes(),
+      ground: Object.entries(this.ground).map(([k, kind]) => {
+        const [gx, gz] = k.split(",").map(Number);
+        return [gx, gz, kind] as [number, number, GroundKind];
+      }),
+      plants: await this.growAll(),
     });
     this.broadcast({ t: "joined", p }, ws);
     if (newHouse) this.broadcast({ t: "house", h: newHouse }, ws);
@@ -335,10 +369,19 @@ export class Island extends DurableObject<Env> {
       if (!house || roomSlotAt(player.x) !== slot || player.x < ROOM_REGION_X) return "Du bist nicht in diesem Zimmer";
       if (house.owner !== player.id) return "Nur die Bewohner dürfen dieses Zimmer einrichten";
       const c = roomCenter(slot);
-      if (Math.abs(gx - c.x) > ROOM_PLACE_HALF || Math.abs(gz) > ROOM_PLACE_HALF) return "Outside the room";
+      if (Math.abs(gx - c.x) > ROOM_PLACE_HALF || Math.abs(gz) > ROOM_PLACE_HALF) return "Außerhalb des Zimmers";
       return null;
     }
-    if (player.x >= ROOM_REGION_X) return "Du bist nicht auf der Insel";
+    const k = key(gx, gz);
+    if (this.plants[k]) return "Da wächst etwas";
+    if (this.ground[k] === "pond" || this.ground[k] === "soil") return "Da ist ein Beet oder Teich";
+    return this.islandSpotProblem(player, gx, gz);
+  }
+
+  /** Why an island cell cannot be changed (furniture, ground or plants), or null. */
+  private islandSpotProblem(player: Player, gx: number, gz: number): string | null {
+    if (Math.hypot(gx - player.x, gz - player.z) > PLACE_RANGE) return "Zu weit weg";
+    if (player.x >= ROOM_REGION_X || gx >= ROOM_REGION_X) return "Du bist nicht auf der Insel";
     if (Math.hypot(gx, gz) > ISLAND_RADIUS - 1.5) return "Zu nah am Wasser";
     if (this.layout.some((n) => Math.hypot(n.x - gx, n.z - gz) < 1.8)) return "Da ist etwas im Weg";
     if (Math.hypot(SHOP_X - gx, SHOP_Z - gz) < SHOP_CLEARANCE) return "Zu nah am Laden";
@@ -419,6 +462,125 @@ export class Island extends DurableObject<Env> {
 
   private async saveDecor(): Promise<void> {
     await this.ctx.storage.put({ decor: this.decor, nextDecorId: this.nextDecorId });
+  }
+
+  // ------------------------------------------------------------ landscaping and gardening
+
+  private async setGround(ws: WebSocket, player: Player, rawX: number, rawZ: number, kind: string): Promise<void> {
+    const gx = Math.round(Number(rawX));
+    const gz = Math.round(Number(rawZ));
+    if (!Number.isFinite(gx) || !Number.isFinite(gz)) return;
+    if (kind !== "grass" && !GROUND_KINDS.includes(kind)) return;
+    const k = key(gx, gz);
+    const current = this.ground[k];
+    if ((current ?? "grass") === kind) return;
+
+    const problem = this.islandSpotProblem(player, gx, gz);
+    if (problem) return this.toast(ws, problem);
+    if (this.plants[k]) return this.toast(ws, "Da wächst etwas");
+    if ((kind === "pond" || kind === "soil") && this.decor.some((d) => d.gx === gx && d.gz === gz)) {
+      return this.toast(ws, "Da steht etwas");
+    }
+    if (!current && Object.keys(this.ground).length >= MAX_GROUND_CELLS) {
+      return this.toast(ws, "Auf dieser Insel ist schon zu viel umgestaltet");
+    }
+
+    const profile = this.profile(player);
+    if (GROUND_NEEDS_SHOVEL.includes(kind) && ((await profile.inventory()).shovel ?? 0) < 1) {
+      return this.toast(ws, "Dafür brauchst du eine Schaufel");
+    }
+    const cost = GROUND_COST[kind];
+    if (cost) {
+      const inv = await profile.pay(cost);
+      if (!inv) return this.toast(ws, "Dir fehlen Materialien");
+      this.send(ws, { t: "inv", inv });
+    }
+
+    if (kind === "grass") delete this.ground[k];
+    else this.ground[k] = kind as GroundKind;
+    await this.ctx.storage.put("ground", this.ground);
+    this.broadcast({ t: "ground_set", gx, gz, kind: kind === "grass" ? null : (kind as GroundKind) });
+  }
+
+  private async sow(ws: WebSocket, player: Player, rawX: number, rawZ: number, seed: string): Promise<void> {
+    const gx = Math.round(Number(rawX));
+    const gz = Math.round(Number(rawZ));
+    const kind = plantForSeed(seed);
+    if (!kind || !Number.isFinite(gx) || !Number.isFinite(gz)) return;
+    const k = key(gx, gz);
+    if (Math.hypot(gx - player.x, gz - player.z) > PLACE_RANGE) return this.toast(ws, "Zu weit weg");
+    if (this.ground[k] !== "soil") return this.toast(ws, "Säen geht nur auf einem Beet");
+    if (this.plants[k]) return this.toast(ws, "Da wächst schon etwas");
+    if (Object.keys(this.plants).length >= MAX_PLANTS) return this.toast(ws, "Auf dieser Insel wächst schon genug");
+    const inv = await this.profile(player).take(seed);
+    if (!inv) return this.toast(ws, "Das hast du nicht");
+    const p: PlantState = { gx, gz, kind, stage: 0, stage_day: islandDay(), watered_day: -1 };
+    this.plants[k] = p;
+    await this.ctx.storage.put("plants", this.plants);
+    this.send(ws, { t: "inv", inv });
+    this.broadcast({ t: "plant_set", gx, gz, p });
+  }
+
+  private async water(ws: WebSocket, player: Player, rawX: number, rawZ: number): Promise<void> {
+    const gx = Math.round(Number(rawX));
+    const gz = Math.round(Number(rawZ));
+    const p = this.plants[key(gx, gz)];
+    if (!p) return;
+    if (Math.hypot(gx - player.x, gz - player.z) > PLACE_RANGE) return this.toast(ws, "Zu weit weg");
+    if (((await this.profile(player).inventory()).watering_can ?? 0) < 1) {
+      return this.toast(ws, "Dafür brauchst du eine Gießkanne");
+    }
+    const today = islandDay();
+    growPlant(p, today);
+    if (p.stage >= PLANTS[p.kind].stages) return this.toast(ws, "Das ist schon reif");
+    if (p.watered_day === today) return this.toast(ws, "Heute schon gegossen");
+    p.watered_day = today;
+    await this.ctx.storage.put("plants", this.plants);
+    this.toast(ws, "Gegossen! Morgen wächst es ein Stück.");
+    this.broadcast({ t: "plant_set", gx, gz, p });
+  }
+
+  private async harvest(ws: WebSocket, player: Player, rawX: number, rawZ: number): Promise<void> {
+    const gx = Math.round(Number(rawX));
+    const gz = Math.round(Number(rawZ));
+    const k = key(gx, gz);
+    const p = this.plants[k];
+    if (!p) return;
+    if (Math.hypot(gx - player.x, gz - player.z) > PLACE_RANGE) return this.toast(ws, "Zu weit weg");
+    const def = PLANTS[p.kind];
+    growPlant(p, islandDay());
+    if (p.stage < def.stages) return this.toast(ws, "Das ist noch nicht reif");
+    const [item, qty] = def.yield;
+    if (def.regrow === null) {
+      delete this.plants[k];
+    } else {
+      p.stage = def.regrow;
+      p.stage_day = islandDay();
+      p.watered_day = -1;
+    }
+    await this.ctx.storage.put("plants", this.plants);
+    this.send(ws, { t: "inv", inv: await this.profile(player).add(item, qty) });
+    this.toast(ws, `Geerntet: ${qty}x ${label(item)}`);
+    this.broadcast({ t: "plant_set", gx, gz, p: this.plants[k] ?? null });
+  }
+
+  /** Applies overnight growth to every plant; persists and returns them. */
+  private async growAll(): Promise<PlantState[]> {
+    const today = islandDay();
+    let changed = false;
+    for (const p of Object.values(this.plants)) changed = growPlant(p, today) || changed;
+    if (changed) await this.ctx.storage.put("plants", this.plants);
+    return Object.values(this.plants);
+  }
+
+  /** Island midnight: let watered plants grow and tell everyone. */
+  async alarm(): Promise<void> {
+    const today = islandDay();
+    const grown: PlantState[] = [];
+    for (const p of Object.values(this.plants)) if (growPlant(p, today)) grown.push(p);
+    if (grown.length) await this.ctx.storage.put("plants", this.plants);
+    for (const p of grown) this.broadcast({ t: "plant_set", gx: p.gx, gz: p.gz, p });
+    await this.ctx.storage.setAlarm(nextIslandMidnight());
   }
 
   // ------------------------------------------------------------ shop
@@ -504,6 +666,8 @@ export class Island extends DurableObject<Env> {
     }
   }
 }
+
+const key = (gx: number, gz: number): string => `${gx},${gz}`;
 
 async function sha256(text: string): Promise<string> {
   const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));

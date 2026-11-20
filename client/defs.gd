@@ -14,6 +14,21 @@ const ITEM_NAMES := {
 	"lamp": "Lampe",
 	"bed": "Bett",
 	"flower_pot": "Blumentopf",
+	"shovel": "Schaufel",
+	"watering_can": "Gießkanne",
+	"fence": "Zaun",
+	"potted_tulip": "Tulpe im Topf",
+	"potted_sunflower": "Sonnenblume im Topf",
+	"carrot_seeds": "Karottensamen",
+	"tomato_seeds": "Tomatensamen",
+	"pumpkin_seeds": "Kürbissamen",
+	"tulip_seeds": "Tulpenzwiebeln",
+	"sunflower_seeds": "Sonnenblumenkerne",
+	"carrot": "Karotte",
+	"tomato": "Tomate",
+	"pumpkin": "Kürbis",
+	"tulip": "Tulpe",
+	"sunflower": "Sonnenblume",
 }
 
 const COINS := "coins"
@@ -25,9 +40,14 @@ const EMOTE_SPEECH := {"wave": "*winkt*", "happy": "*freut sich*", "sad": "*ist 
 const SELL_PRICES := {
 	"apple": 10, "wood": 5, "stone": 8, "fish": 40, "fishing_rod": 20, "fruit_basket": 50,
 	"campfire": 30, "chair": 15, "table": 30, "lamp": 25, "bed": 45, "flower_pot": 25,
+	"shovel": 15, "watering_can": 20, "fence": 5, "potted_tulip": 45, "potted_sunflower": 50,
+	"carrot_seeds": 5, "tomato_seeds": 8, "pumpkin_seeds": 10, "tulip_seeds": 4, "sunflower_seeds": 5,
+	"carrot": 25, "tomato": 20, "pumpkin": 90, "tulip": 15, "sunflower": 20,
 }
 const SHOP_CATALOG := {
 	"fishing_rod": 60, "chair": 60, "flower_pot": 80, "lamp": 120, "table": 140, "bed": 250,
+	"shovel": 50, "watering_can": 80, "carrot_seeds": 20, "tomato_seeds": 30, "pumpkin_seeds": 40,
+	"tulip_seeds": 15, "sunflower_seeds": 20,
 }
 const SHOP_POS := Vector3(0, 0, -5)
 const SHOP_RANGE := 4.5  # server allows 5
@@ -37,7 +57,10 @@ const SHOP_COLLISION_RADIUS := 1.7
 const SHOP_OPEN_HOUR := 8
 const SHOP_CLOSE_HOUR := 22
 
-const PLACEABLE := ["fruit_basket", "campfire", "chair", "table", "lamp", "bed", "flower_pot"]
+const PLACEABLE := [
+	"fruit_basket", "campfire", "chair", "table", "lamp", "bed", "flower_pot",
+	"fence", "potted_tulip", "potted_sunflower",
+]
 
 const RECIPES := {
 	"fishing_rod": {"wood": 3},
@@ -48,6 +71,11 @@ const RECIPES := {
 	"lamp": {"wood": 1, "stone": 1},
 	"bed": {"wood": 6},
 	"flower_pot": {"stone": 2},
+	"shovel": {"wood": 2, "stone": 1},
+	"watering_can": {"stone": 3, "wood": 1},
+	"fence": {"wood": 1},
+	"potted_tulip": {"flower_pot": 1, "tulip": 1},
+	"potted_sunflower": {"flower_pot": 1, "sunflower": 1},
 }
 
 const INTERACT_RANGE := 3.5  # server allows 4
@@ -108,3 +136,24 @@ const PROPS := [
 	["mushroom_house", Vector2(-16.9, 17.2), 2.2, 1.4],
 	["wheelbarrow", Vector2(22, -4.5), 1.8, 1.4],
 ]
+
+
+# Landscaping (mirrors server/src/protocol.ts). "grass" clears a cell.
+const GROUND_TOOLS := [
+	["path", "Steinweg", "1 Stein"],
+	["gravel", "Kiesweg", "kostenlos"],
+	["soil", "Beet", "Schaufel"],
+	["pond", "Teich", "Schaufel"],
+	["grass", "Gras", "Schaufel"],
+]
+const GROUND_NEEDS_SHOVEL := ["soil", "pond", "grass"]
+
+# Plants: seed item, watered days until ripe, harvest item.
+const PLANTS := {
+	"carrot": {"seed": "carrot_seeds", "stages": 3, "yield": "carrot"},
+	"tomato": {"seed": "tomato_seeds", "stages": 3, "yield": "tomato"},
+	"pumpkin": {"seed": "pumpkin_seeds", "stages": 4, "yield": "pumpkin"},
+	"tulip": {"seed": "tulip_seeds", "stages": 2, "yield": "tulip"},
+	"sunflower": {"seed": "sunflower_seeds", "stages": 3, "yield": "sunflower"},
+}
+const SEEDS := ["carrot_seeds", "tomato_seeds", "pumpkin_seeds", "tulip_seeds", "sunflower_seeds"]

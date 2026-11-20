@@ -25,6 +25,8 @@ var sun: DirectionalLight3D
 var villagers: Villagers
 var props: Props
 var critters: Critters
+var garden: Garden
+var _garden_ghost: MeshInstance3D
 var shop_sign: Label3D
 var _daylight_timer := 0.0
 var cam_yaw := 0.0
@@ -168,6 +170,12 @@ func _build_world() -> void:
 	critters = Critters.new()
 	add_child(critters)
 	critters.setup(props.homes)
+	garden = Garden.new()
+	add_child(garden)
+	_garden_ghost = MeshInstance3D.new()
+	_garden_ghost.mesh = Style.box(Vector3(0.96, 0.05, 0.96))
+	_garden_ghost.visible = false
+	add_child(_garden_ghost)
 
 	_add_mesh(_cylinder(ISLAND_RADIUS + 3.0, 2.0), Color(0.9, 0.8, 0.58), Vector3(0, -1.05, 0), {"paper": 0.2})  # sand
 	_add_mesh(_cylinder(ISLAND_RADIUS, 2.0), Color(0.54, 0.62, 0.36), Vector3(0, -1.0, 0),
@@ -303,6 +311,7 @@ func _on_message(d: Dictionary) -> void:
 			_clear_decor()
 			for dd: Dictionary in d.get("decor", []):
 				_add_decor(dd)
+			garden.load_state(d.get("ground", []), d.get("plants", []))
 			hud.set_inventory(d.get("inv", {}))
 			IslandClock.offset_minutes = int(d.get("tz_offset", IslandClock.offset_minutes))
 			_update_status()
@@ -319,6 +328,10 @@ func _on_message(d: Dictionary) -> void:
 			if dn:
 				dn.queue_free()
 				decor_nodes.erase(d["id"])
+		"ground_set":
+			garden.set_ground(Vector2i(int(d["gx"]), int(d["gz"])), d.get("kind"))
+		"plant_set":
+			garden.set_plant(Vector2i(int(d["gx"]), int(d["gz"])), d.get("p"))
 		"decor_rot":
 			var dr: DecorNode = decor_nodes.get(d.get("id", ""))
 			if dr:
@@ -600,6 +613,8 @@ func _unhandled_key_input(event: InputEvent) -> void:
 		hud.toggle_craft()
 	elif event.physical_keycode == KEY_B:
 		hud.toggle_build()
+	elif event.physical_keycode == KEY_H:
+		hud.toggle_garden()
 	elif event.physical_keycode == KEY_P:
 		_place()
 	elif event.physical_keycode == KEY_R:
@@ -634,6 +649,9 @@ func _act() -> void:
 	if hud.is_building():
 		_place()
 		return
+	if hud.is_gardening():
+		_garden_apply()
+		return
 	var door := _door_option()
 	if not door.is_empty():
 		(door["go"] as Callable).call()
@@ -644,6 +662,10 @@ func _act() -> void:
 	var npc := villagers.nearest(me.position)
 	if npc != "":
 		_talk_to(npc)
+		return
+	var plant_action := _plant_option()
+	if not plant_action.is_empty():
+		net.send(plant_action["msg"])
 		return
 	var n := _nearest_node()
 	if n:
@@ -742,6 +764,7 @@ func _push_out_of_nodes() -> void:
 func _update_prompt() -> void:
 	hud.set_nearby_decor(_nearest_decor() != null)
 	_update_ghost()
+	_update_garden_ghost()
 	if hud.is_dialogue_open():
 		hud.set_prompt("")
 		hud.set_primary("Weiter")
@@ -751,6 +774,12 @@ func _update_prompt() -> void:
 		hud.set_prompt("Platzieren (P), Drehen (R), Abbrechen (Esc)" if not hud.touch else "")
 		hud.set_primary("Platzieren")
 		return
+	if hud.is_gardening():
+		var seed_tool := hud.garden_tool.begins_with("seed:")
+		var what: String = Defs.ITEM_NAMES[hud.garden_tool.substr(5)] if seed_tool else _ground_label(hud.garden_tool.substr(7))
+		hud.set_prompt(("%s säen" if seed_tool else "%s anlegen") % what, "F")
+		hud.set_primary("Säen" if seed_tool else "Anlegen")
+		return
 	if not door.is_empty():
 		hud.set_prompt(door["text"], "F")
 		hud.set_primary(door["short"])
@@ -759,6 +788,16 @@ func _update_prompt() -> void:
 	if npc != "":
 		hud.set_prompt("Mit %s reden" % villagers.display_name(npc), "F")
 		hud.set_primary("Reden")
+		return
+	var plant_action := _plant_option()
+	if not plant_action.is_empty():
+		hud.set_prompt(plant_action["text"], "F")
+		hud.set_primary(plant_action["short"])
+		return
+	var info := _plant_info()
+	if info != "":
+		hud.set_prompt(info)
+		hud.set_primary("")
 		return
 	var n := _nearest_node()
 	if n and not _in_room():
@@ -902,3 +941,110 @@ func _scatter_meadow() -> void:
 		mmi.multimesh = mm
 		mmi.material_override = Style.mat(Color.WHITE, {"vertex_color": true, "outline": kind == "flower"})
 		add_child(mmi)
+
+
+# ---------------------------------------------------------------- landscaping and gardening
+
+func _ground_label(kind: String) -> String:
+	for g: Array in Defs.GROUND_TOOLS:
+		if g[0] == kind:
+			return g[1]
+	return kind
+
+
+## Client-side guess whether a garden tool can be used on `cell`. The server decides for real.
+func _garden_cell_valid(cell: Vector2i, tool: String) -> bool:
+	if _in_room():
+		return false
+	if tool.begins_with("seed:"):
+		return garden.ground_at(cell) == "soil" and garden.plant_at(cell).is_empty()
+	var kind := tool.substr(7)
+	if garden.ground_at(cell) == kind or not garden.plant_at(cell).is_empty():
+		return false
+	if Vector2(cell).length() > Defs.ISLAND_RADIUS - 1.5:
+		return false
+	if Vector2(cell).distance_to(Vector2(Defs.SHOP_POS.x, Defs.SHOP_POS.z)) < 3.0:
+		return false
+	for n: WorldNode in nodes.values():
+		if Vector2(n.position.x, n.position.z).distance_to(Vector2(cell)) < 1.8:
+			return false
+	for p: Array in Defs.PROPS:
+		if Vector2(cell).distance_to(p[1]) < float(p[2]) + 0.8:
+			return false
+	for slot in Defs.MAX_HOUSES:
+		var hc := Defs.house_center(slot)
+		var dc := Defs.door_outside(slot)
+		if Vector2(hc.x, hc.z).distance_to(Vector2(cell)) < 4.5 or Vector2(dc.x, dc.z).distance_to(Vector2(cell)) < 2.5:
+			return false
+	if kind in ["soil", "pond"]:
+		for dn: DecorNode in decor_nodes.values():
+			if dn.gx == cell.x and dn.gz == cell.y:
+				return false
+	return true
+
+
+func _update_garden_ghost() -> void:
+	if not hud.is_gardening():
+		_garden_ghost.visible = false
+		return
+	var cell := _target_cell()
+	var m := StandardMaterial3D.new()
+	m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	m.albedo_color = Color(0.3, 1.0, 0.4, 0.5) if _garden_cell_valid(cell, hud.garden_tool) else Color(1.0, 0.3, 0.3, 0.5)
+	_garden_ghost.material_override = m
+	_garden_ghost.position = Vector3(cell.x, 0.14, cell.y)
+	_garden_ghost.visible = true
+
+
+func _garden_apply() -> void:
+	var cell := _target_cell()
+	var tool := hud.garden_tool
+	if tool.begins_with("seed:"):
+		net.send({"t": "sow", "gx": cell.x, "gz": cell.y, "seed": tool.substr(5)})
+	else:
+		net.send({"t": "ground", "gx": cell.x, "gz": cell.y, "kind": tool.substr(7)})
+
+
+## The plant the player is facing: the target cell, else the nearest one within reach.
+func _facing_plant() -> Dictionary:
+	if _in_room():
+		return {}
+	var cell := _target_cell()
+	var p := garden.plant_at(cell)
+	if not p.is_empty():
+		return p
+	var best := {}
+	var best_d := 1.6
+	for c: Vector2i in garden.plants:
+		var d := Vector2(c).distance_to(Vector2(me.position.x, me.position.z))
+		if d < best_d:
+			best_d = d
+			best = garden.plants[c]
+	return best
+
+
+## Harvest or water the facing plant: {"text", "short", "msg"} or empty.
+func _plant_option() -> Dictionary:
+	var p := _facing_plant()
+	if p.is_empty():
+		return {}
+	var at := {"gx": p["gx"], "gz": p["gz"]}
+	var what: String = Defs.ITEM_NAMES[Defs.PLANTS[p["kind"]]["yield"]]
+	if Garden.is_ripe(p):
+		return {"text": "%s ernten" % what, "short": "Ernten", "msg": {"t": "harvest"}.merged(at)}
+	if not Garden.watered_today(p) and hud.has_item("watering_can"):
+		return {"text": "%s gießen" % what, "short": "Gießen", "msg": {"t": "water"}.merged(at)}
+	return {}
+
+
+## A short status of the facing plant when there is nothing to do with it.
+func _plant_info() -> String:
+	var p := _facing_plant()
+	if p.is_empty():
+		return ""
+	var what: String = Defs.ITEM_NAMES[Defs.PLANTS[p["kind"]]["yield"]]
+	var stages: int = Defs.PLANTS[p["kind"]]["stages"]
+	var stage := Garden.stage_of(p)
+	if Garden.watered_today(p):
+		return "%s: heute gegossen, wächst über Nacht (%d/%d)" % [what, stage, stages]
+	return "%s: braucht Wasser (Gießkanne), %d/%d" % [what, stage, stages]

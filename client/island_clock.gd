@@ -30,3 +30,8 @@ static func in_hours(h: float, from: float, to: float) -> bool:
 
 static func shop_is_open() -> bool:
 	return in_hours(hour(), Defs.SHOP_OPEN_HOUR, Defs.SHOP_CLOSE_HOUR)
+
+
+## Island day number (days since the epoch in island time), as used by the server for plant growth.
+static func day() -> int:
+	return int(floor((Time.get_unix_time_from_system() + offset_minutes * 60.0) / 86400.0))

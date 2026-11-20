@@ -28,10 +28,15 @@ See [docs/phase-plan.md](docs/phase-plan.md) for the roadmap.
 - A player's skin is picked from their guest id (the two human skins), lightly tinted with the player's color.
 - Font: "Patrick Hand" by Patrick Wagesreiter, SIL Open Font License 1.1 (see `client/assets/fonts/PatrickHand-OFL.txt`).
 
+## Landscaping and gardening
+- Outdoors anyone can paint ground cells (1 m grid): stone path (costs 1 stone), gravel path (free), garden bed and pond (need a shovel); "Gras" clears a cell. Inside a house only its owner decorates.
+- Seeds come from Mara's shop and are sown on garden beds. A plant grows one stage for every island day it was watered (watering can), at the next island midnight; the worker uses a Durable Object alarm so growth also happens while nobody is online. Anyone may harvest ripe plants. Tomatoes and flowers regrow after harvesting.
+- Crafting: shovel, watering can, fence (placeable like furniture), potted tulip and potted sunflower.
+
 ## Language and controls
 - The game is in German (villagers, UI, item names, server messages); code and comments stay English.
 - The 2D UI scales with the window (`content_scale_mode = canvas_items`), with a smaller base size on touch devices so buttons stay finger-sized.
-- Controls: a big context button (bottom right, label changes: Reden, Ernten, Angeln, Hinein, Platzieren ...) and a menu button that opens a radial action wheel (Bauen, Basteln, Chat, emotes, Aufheben/Drehen near furniture). Desktop: WASD, Q/E camera, F act, B build, C craft, P/R/G place/rotate/pick up, Tab wheel, 1-4 emotes, Enter chat.
+- Controls: a big context button (bottom right, label changes: Reden, Ernten, Angeln, Hinein, Platzieren ...) and a menu button that opens a radial action wheel (Bauen, Basteln, Chat, emotes, Aufheben/Drehen near furniture). Desktop: WASD, Q/E camera, F act, B build, C craft, H garden, P/R/G place/rotate/pick up, Tab wheel, 1-4 emotes, Enter chat.
 
 ## Look
 A warm, hand-drawn storybook style: painterly toon shading with violet shadows and paper grain (`client/shaders/toon.gdshader`), ink outlines with a constant pixel width (`client/shaders/outline.gdshader`), a muted earthy palette and paper-like UI. Materials, labels and the UI theme come from `client/style.gd`.

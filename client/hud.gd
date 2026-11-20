@@ -12,6 +12,7 @@ signal buy_requested(item: String)
 signal sell_requested(item: String, qty: int)
 signal emote_requested(kind: String)
 signal chat_requested
+signal garden_tool_selected(tool: String)
 
 var _inventory_label: Label
 var _prompt: Label
@@ -39,6 +40,10 @@ var _primary: Button
 var _menu_btn: Button
 var _wheel: ActionWheel
 var _near_decor := false
+var _garden_panel: PanelContainer
+var _garden_list: VBoxContainer
+## Selected garden tool: "ground:<kind>" or "seed:<item>", or "" for none.
+var garden_tool := ""
 ## On touch screens keyboard hints are hidden and the chat field only opens on demand.
 var touch := DisplayServer.is_touchscreen_available()
 
@@ -105,8 +110,7 @@ func _ready() -> void:
 	_build_hint.theme_type_variation = "PanelLabel"
 	_build_hint.text = "Wähle etwas aus, dann Platzieren"
 	build_box.add_child(_build_hint)
-	_build_items = VBoxContainer.new()
-	build_box.add_child(_build_items)
+	_build_items = _scroll_list(build_box)
 	var place_row := HBoxContainer.new()
 	build_box.add_child(place_row)
 	_action_button(place_row, "Platzieren", func() -> void: place_pressed.emit())
@@ -134,12 +138,33 @@ func _ready() -> void:
 	craft_title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	craft_head.add_child(craft_title)
 	_action_button(craft_head, "Schließen", toggle_craft)
+	var craft_list := _scroll_list(box)
 	for recipe: String in Defs.RECIPES:
 		var b := Button.new()
 		b.focus_mode = Control.FOCUS_NONE
 		b.pressed.connect(func() -> void: craft_requested.emit(recipe))
-		box.add_child(b)
+		craft_list.add_child(b)
 		_craft_buttons[recipe] = b
+
+	_garden_panel = PanelContainer.new()
+	_garden_panel.anchor_left = 1.0
+	_garden_panel.anchor_right = 1.0
+	_garden_panel.offset_left = -380
+	_garden_panel.offset_right = -16
+	_garden_panel.offset_top = 56
+	_garden_panel.visible = false
+	add_child(_garden_panel)
+	var garden_box := VBoxContainer.new()
+	_garden_panel.add_child(garden_box)
+	var garden_head := HBoxContainer.new()
+	garden_box.add_child(garden_head)
+	var garden_title := Label.new()
+	garden_title.theme_type_variation = "PanelLabel"
+	garden_title.text = "Garten"
+	garden_title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	garden_head.add_child(garden_title)
+	_action_button(garden_head, "Fertig", toggle_garden)
+	_garden_list = _scroll_list(garden_box)
 	_wheel = ActionWheel.new()
 	_wheel.chosen.connect(_on_wheel_chosen)
 	add_child(_wheel)
@@ -173,6 +198,7 @@ func open_wheel() -> void:
 	var items := [
 		{"id": "build", "label": "Bauen"},
 		{"id": "craft", "label": "Basteln"},
+		{"id": "garden", "label": "Garten"},
 		{"id": "chat", "label": "Chat"},
 		{"id": "wave", "label": Defs.EMOTE_LABELS["wave"]},
 		{"id": "happy", "label": Defs.EMOTE_LABELS["happy"]},
@@ -200,6 +226,9 @@ func _on_wheel_chosen(id: String) -> void:
 		"craft":
 			if not _craft_panel.visible:
 				toggle_craft()
+		"garden":
+			if not _garden_panel.visible:
+				toggle_garden()
 		"chat":
 			chat_requested.emit()
 		"pickup":
@@ -225,14 +254,98 @@ func _action_button(parent: Control, text: String, callback: Callable) -> Button
 	return b
 
 
+## A vertical list that scrolls when it gets taller than the screen allows.
+func _scroll_list(parent: Control) -> VBoxContainer:
+	var sc := ScrollContainer.new()
+	sc.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	sc.custom_minimum_size = Vector2(0, 250)
+	parent.add_child(sc)
+	var list := VBoxContainer.new()
+	list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	sc.add_child(list)
+	return list
+
+
+## Only one side panel at a time.
+func _close_panels(except: Control) -> void:
+	if except != _craft_panel:
+		_craft_panel.visible = false
+	if except != _build_panel and _build_panel.visible:
+		_build_panel.visible = false
+		select_item("")
+	if except != _garden_panel and _garden_panel.visible:
+		_garden_panel.visible = false
+		select_garden_tool("")
+
+
 func toggle_craft() -> void:
+	_close_panels(_craft_panel)
 	_craft_panel.visible = not _craft_panel.visible
 
 
 func toggle_build() -> void:
+	_close_panels(_build_panel)
 	_build_panel.visible = not _build_panel.visible
 	if not _build_panel.visible:
 		select_item("")
+
+
+func toggle_garden() -> void:
+	_close_panels(_garden_panel)
+	_garden_panel.visible = not _garden_panel.visible
+	if not _garden_panel.visible:
+		select_garden_tool("")
+	else:
+		_refresh_garden()
+
+
+func is_gardening() -> bool:
+	return _garden_panel.visible and garden_tool != ""
+
+
+func select_garden_tool(tool: String) -> void:
+	garden_tool = tool
+	garden_tool_selected.emit(tool)
+	_refresh_garden()
+
+
+func _refresh_garden() -> void:
+	if _garden_list == null:
+		return
+	for c in _garden_list.get_children():
+		c.queue_free()
+	var head := Label.new()
+	head.theme_type_variation = "PanelLabel"
+	head.text = "Boden"
+	_garden_list.add_child(head)
+	for g: Array in Defs.GROUND_TOOLS:
+		var tool := "ground:" + String(g[0])
+		var b := Button.new()
+		b.focus_mode = Control.FOCUS_NONE
+		b.text = "%s  (%s)%s" % [g[1], g[2], "  <" if garden_tool == tool else ""]
+		b.pressed.connect(select_garden_tool.bind(tool))
+		_garden_list.add_child(b)
+	var seeds_head := Label.new()
+	seeds_head.theme_type_variation = "PanelLabel"
+	seeds_head.text = "Säen"
+	_garden_list.add_child(seeds_head)
+	var any := false
+	for seed: String in Defs.SEEDS:
+		var qty := int(_inv.get(seed, 0))
+		if qty < 1:
+			continue
+		any = true
+		var tool := "seed:" + seed
+		var b := Button.new()
+		b.focus_mode = Control.FOCUS_NONE
+		b.text = "%s x%d%s" % [Defs.ITEM_NAMES[seed], qty, "  <" if garden_tool == tool else ""]
+		b.pressed.connect(select_garden_tool.bind(tool))
+		_garden_list.add_child(b)
+	if not any:
+		var none := Label.new()
+		none.theme_type_variation = "PanelLabel"
+		none.text = "Keine Samen. Mara verkauft welche."
+		_garden_list.add_child(none)
 
 
 func is_building() -> bool:
@@ -274,6 +387,10 @@ func set_inventory(inv: Dictionary) -> void:
 		_refresh_shop()
 	if selected_item != "" and int(inv.get(selected_item, 0)) < 1:
 		select_item("")
+	if garden_tool.begins_with("seed:") and int(inv.get(garden_tool.substr(5), 0)) < 1:
+		select_garden_tool("")
+	elif _garden_panel and _garden_panel.visible:
+		_refresh_garden()
 	_refresh_build_items()
 	for recipe: String in _craft_buttons:
 		var cost: Dictionary = Defs.RECIPES[recipe]
@@ -394,8 +511,7 @@ func _build_shop() -> void:
 	close.focus_mode = Control.FOCUS_NONE
 	close.pressed.connect(hide_shop)
 	header.add_child(close)
-	_shop_list = VBoxContainer.new()
-	box.add_child(_shop_list)
+	_shop_list = _scroll_list(box)
 
 
 ## mode: "buy" or "sell"
