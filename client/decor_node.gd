@@ -37,13 +37,7 @@ func set_ghost(valid: bool) -> void:
 func _part(mesh: Mesh, color: Color, pos: Vector3, emissive := false) -> void:
 	var mi := MeshInstance3D.new()
 	mi.mesh = mesh
-	var mat := StandardMaterial3D.new()
-	mat.albedo_color = color
-	if emissive:
-		mat.emission_enabled = true
-		mat.emission = color
-		mat.emission_energy_multiplier = 1.5
-	mi.material_override = mat
+	mi.material_override = Style.mat(color, {"emission": color * 0.9} if emissive else {})
 	mi.position = pos
 	add_child(mi)
 	_meshes.append(mi)
@@ -82,7 +76,7 @@ func _ball(radius: float) -> SphereMesh:
 
 
 func _build() -> void:
-	var wood := Color(0.62, 0.42, 0.24)
+	var wood := Color(0.66, 0.45, 0.28)
 	match item:
 		"chair":
 			_part(_box(Vector3(0.6, 0.1, 0.6)), wood, Vector3(0, 0.45, 0))

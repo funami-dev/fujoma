@@ -44,6 +44,7 @@ var _touch_dir := Vector2.ZERO
 
 
 func _ready() -> void:
+	ThemeDB.fallback_font = Style.font()
 	_read_params()
 	_load_or_create_guest()
 	_setup_input()
@@ -151,12 +152,15 @@ func _build_world() -> void:
 	villagers = Villagers.new()
 	add_child(villagers)
 
-	_add_mesh(_cylinder(ISLAND_RADIUS + 3.0, 2.0), Color(0.93, 0.85, 0.6), Vector3(0, -1.05, 0))  # sand
-	_add_mesh(_cylinder(ISLAND_RADIUS, 2.0), Color(0.45, 0.75, 0.38), Vector3(0, -1.0, 0))  # grass
+	_add_mesh(_cylinder(ISLAND_RADIUS + 3.0, 2.0), Color(0.9, 0.8, 0.58), Vector3(0, -1.05, 0), {"paper": 0.2})  # sand
+	_add_mesh(_cylinder(ISLAND_RADIUS, 2.0), Color(0.54, 0.62, 0.36), Vector3(0, -1.0, 0),
+			{"color2": Color(0.45, 0.55, 0.3), "patch_scale": 0.09, "paper": 0.18})  # meadow
 
 	var water := PlaneMesh.new()
 	water.size = Vector2(400, 400)
-	_add_mesh(water, Color(0.2, 0.5, 0.8), Vector3(0, -0.6, 0))
+	_add_mesh(water, Color(0.45, 0.62, 0.7), Vector3(0, -0.6, 0),
+			{"color2": Color(0.4, 0.56, 0.66), "patch_scale": 0.05, "paper": 0.22, "outline": false})
+	_scatter_meadow()
 
 	camera = Camera3D.new()
 	camera.fov = 60.0
@@ -172,16 +176,14 @@ func _cylinder(radius: float, height: float) -> CylinderMesh:
 	return c
 
 
-func _mat(color: Color) -> StandardMaterial3D:
-	var m := StandardMaterial3D.new()
-	m.albedo_color = color
-	return m
+func _mat(color: Color, opts := {}) -> Material:
+	return Style.mat(color, opts)
 
 
-func _add_mesh(mesh: Mesh, color: Color, pos: Vector3) -> void:
+func _add_mesh(mesh: Mesh, color: Color, pos: Vector3, opts := {}) -> void:
 	var mi := MeshInstance3D.new()
 	mi.mesh = mesh
-	mi.material_override = _mat(color)
+	mi.material_override = _mat(color, opts)
 	mi.position = pos
 	add_child(mi)
 
@@ -231,6 +233,10 @@ func _build_ui() -> void:
 		b.focus_mode = Control.FOCUS_NONE
 		b.pressed.connect(_send_emote.bind(kind))
 		emote_box.add_child(b)
+
+	for c in layer.get_children():
+		if c is Control:
+			(c as Control).theme = Style.ui_theme()
 
 	hud = Hud.new()
 	add_child(hud)
@@ -765,11 +771,8 @@ func _build_shop_stall() -> void:
 		mi.material_override = _mat(p[1])
 		mi.position = p[2]
 		stall.add_child(mi)
-	shop_sign = Label3D.new()
-	shop_sign.billboard = BaseMaterial3D.BILLBOARD_ENABLED
-	shop_sign.pixel_size = 0.012
-	shop_sign.font_size = 40
-	shop_sign.outline_size = 8
+	shop_sign = Style.label3d("", 40)
+	shop_sign.no_depth_test = false
 	shop_sign.position = Vector3(0, 3.4, -0.4)
 	stall.add_child(shop_sign)
 
@@ -777,9 +780,9 @@ func _build_shop_stall() -> void:
 # ---------------------------------------------------------------- day and night
 
 const SKY_KEYS := [
-	[0.0, Color(0.03, 0.05, 0.13)], [5.0, Color(0.04, 0.06, 0.15)], [6.5, Color(0.95, 0.62, 0.48)],
-	[8.0, Color(0.53, 0.81, 0.92)], [17.5, Color(0.53, 0.81, 0.92)], [19.5, Color(0.95, 0.52, 0.38)],
-	[21.0, Color(0.05, 0.07, 0.18)], [24.0, Color(0.03, 0.05, 0.13)],
+	[0.0, Color(0.1, 0.12, 0.24)], [5.0, Color(0.12, 0.14, 0.27)], [6.5, Color(0.98, 0.78, 0.6)],
+	[8.0, Color(0.76, 0.86, 0.88)], [17.5, Color(0.76, 0.86, 0.88)], [19.5, Color(0.98, 0.68, 0.5)],
+	[21.0, Color(0.14, 0.15, 0.3)], [24.0, Color(0.1, 0.12, 0.24)],
 ]
 
 
@@ -797,15 +800,55 @@ func _update_daylight() -> void:
 	hud.set_clock(IslandClock.label())
 	shop_sign.text = "Mara's Shop\n%s" % ("Open until 22:00" if IslandClock.shop_is_open() else "Closed (opens 8:00)")
 
-	# Sun arc from 6:00 to 20:00; a dim blue moon light at night.
+	# Sun arc from 6:00 to 20:00 with a golden hour when it is low; a dim blue moon at night.
 	var day := clampf(sin(PI * (h - 6.0) / 14.0), 0.0, 1.0) if h > 6.0 and h < 20.0 else 0.0
-	var f := clampf(day * 3.0, 0.0, 1.0)
+	var f := clampf(day * 6.0, 0.0, 1.0)  # 0 = night, 1 = daylight
+	var golden := 1.0 - clampf(day * 2.5, 0.0, 1.0)  # 1 near sunrise/sunset
 	world_env.background_color = _sky_color(h)
-	world_env.ambient_light_energy = 0.3 + 0.35 * f
-	world_env.ambient_light_color = Color(0.35, 0.4, 0.65).lerp(Color(0.7, 0.75, 0.85), f)
-	var warm := Color(1.0, 0.7, 0.5).lerp(Color(1.0, 0.96, 0.88), clampf(day * 2.0, 0.0, 1.0))
-	sun.light_color = Color(0.55, 0.65, 1.0).lerp(warm, f)
-	sun.light_energy = 0.2 + 0.8 * f
+	world_env.ambient_light_energy = 0.25 + 0.2 * f
+	var day_ambient := Color(0.85, 0.8, 0.72).lerp(Color(0.95, 0.72, 0.6), golden)
+	world_env.ambient_light_color = Color(0.42, 0.45, 0.7).lerp(day_ambient, f)
+	var sun_color := Color(1.0, 0.96, 0.88).lerp(Color(1.0, 0.64, 0.4), golden)
+	sun.light_color = Color(0.55, 0.65, 1.0).lerp(sun_color, f)
+	sun.light_energy = lerpf(0.2, 0.45 + 0.4 * clampf(day * 2.0, 0.0, 1.0), f)
 	var elevation := lerpf(40.0, 15.0 + 60.0 * day, f)
 	var azimuth := lerpf(-60.0, 240.0, clampf((h - 6.0) / 14.0, 0.0, 1.0)) if f > 0.0 else 30.0
 	sun.rotation_degrees = Vector3(-elevation, azimuth, 0)
+
+
+## Grass tufts and flowers scattered over the meadow (decoration only, same on every client).
+func _scatter_meadow() -> void:
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 4321
+	var tuft := CylinderMesh.new()
+	tuft.top_radius = 0.0
+	tuft.bottom_radius = 0.1
+	tuft.height = 0.35
+	tuft.radial_segments = 5
+	tuft.rings = 1
+	var flower := SphereMesh.new()
+	flower.radius = 0.1
+	flower.height = 0.16
+	flower.radial_segments = 6
+	flower.rings = 3
+	var palette := [Color(0.95, 0.85, 0.3), Color(0.95, 0.95, 0.9), Color(0.9, 0.45, 0.5), Color(0.6, 0.55, 0.9)]
+	for kind in ["tuft", "flower"]:
+		var mm := MultiMesh.new()
+		mm.transform_format = MultiMesh.TRANSFORM_3D
+		mm.use_colors = true
+		mm.mesh = tuft if kind == "tuft" else flower
+		mm.instance_count = 320 if kind == "tuft" else 140
+		for i in mm.instance_count:
+			var a := rng.randf() * TAU
+			var r := sqrt(rng.randf()) * (ISLAND_RADIUS - 2.0)
+			var pos := Vector3(cos(a) * r, 0.15 if kind == "tuft" else 0.12, sin(a) * r)
+			var basis := Basis(Vector3.UP, rng.randf() * TAU).scaled(Vector3.ONE * rng.randf_range(0.7, 1.4))
+			mm.set_instance_transform(i, Transform3D(basis, pos))
+			if kind == "tuft":
+				mm.set_instance_color(i, Color(0.42, 0.55, 0.25).lerp(Color(0.55, 0.65, 0.3), rng.randf()))
+			else:
+				mm.set_instance_color(i, palette[rng.randi() % palette.size()])
+		var mmi := MultiMeshInstance3D.new()
+		mmi.multimesh = mm
+		mmi.material_override = Style.mat(Color.WHITE, {"vertex_color": true, "outline": kind == "flower"})
+		add_child(mmi)
