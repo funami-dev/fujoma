@@ -20,8 +20,8 @@ func setup(house_slot: int, owner: String, display_name: String, parent: Node3D)
 
 func set_owner_name(display_name: String) -> void:
 	owner_name = display_name
-	_plaque.text = "%s's house" % display_name
-	_room_label.text = "%s's room" % display_name
+	_plaque.text = "Haus von %s" % display_name
+	_room_label.text = "Zimmer von %s" % display_name
 
 
 func _mat(color: Color) -> Material:
@@ -94,7 +94,7 @@ func _build_room(world: Node3D) -> void:
 	_mesh(room, _box(Vector3(half - 1.2, 1.2, 0.3)), wall_color, Vector3((half + 1.2) / 2.0, 0.6, half))  # front right
 	_mesh(room, _box(Vector3(2.0, 0.04, 1.2)), Color(0.75, 0.2, 0.2), Vector3(0, 0.02, 5.5))  # door mat
 
-	var exit_label := Style.label3d("Exit (F)", 36, 0.01)
+	var exit_label := Style.label3d("Ausgang", 36, 0.01)
 	exit_label.position = Vector3(0, 1.6, 5.5)
 	room.add_child(exit_label)
 

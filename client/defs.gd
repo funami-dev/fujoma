@@ -2,21 +2,24 @@ class_name Defs
 ## Item and recipe definitions. Mirrors server/src/protocol.ts.
 
 const ITEM_NAMES := {
-	"apple": "Apple",
-	"wood": "Wood",
-	"stone": "Stone",
-	"fish": "Fish",
-	"fishing_rod": "Fishing rod",
-	"fruit_basket": "Fruit basket",
-	"campfire": "Campfire",
-	"chair": "Chair",
-	"table": "Table",
-	"lamp": "Lamp",
-	"bed": "Bed",
-	"flower_pot": "Flower pot",
+	"apple": "Apfel",
+	"wood": "Holz",
+	"stone": "Stein",
+	"fish": "Fisch",
+	"fishing_rod": "Angel",
+	"fruit_basket": "Obstkorb",
+	"campfire": "Lagerfeuer",
+	"chair": "Stuhl",
+	"table": "Tisch",
+	"lamp": "Lampe",
+	"bed": "Bett",
+	"flower_pot": "Blumentopf",
 }
 
 const COINS := "coins"
+
+const EMOTE_LABELS := {"wave": "Winken", "happy": "Freuen", "sad": "Traurig", "dance": "Tanzen"}
+const EMOTE_SPEECH := {"wave": "*winkt*", "happy": "*freut sich*", "sad": "*ist traurig*", "dance": "*tanzt*"}
 
 ## Mirrors SELL_PRICES and SHOP_CATALOG in server/src/protocol.ts.
 const SELL_PRICES := {

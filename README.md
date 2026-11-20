@@ -28,5 +28,10 @@ See [docs/phase-plan.md](docs/phase-plan.md) for the roadmap.
 - A player's skin is picked from their guest id (the two human skins), lightly tinted with the player's color.
 - Font: "Patrick Hand" by Patrick Wagesreiter, SIL Open Font License 1.1 (see `client/assets/fonts/PatrickHand-OFL.txt`).
 
+## Language and controls
+- The game is in German (villagers, UI, item names, server messages); code and comments stay English.
+- The 2D UI scales with the window (`content_scale_mode = canvas_items`), with a smaller base size on touch devices so buttons stay finger-sized.
+- Controls: a big context button (bottom right, label changes: Reden, Ernten, Angeln, Hinein, Platzieren ...) and a menu button that opens a radial action wheel (Bauen, Basteln, Chat, emotes, Aufheben/Drehen near furniture). Desktop: WASD, Q/E camera, F act, B build, C craft, P/R/G place/rotate/pick up, Tab wheel, 1-4 emotes, Enter chat.
+
 ## Look
 A warm, hand-drawn storybook style: painterly toon shading with violet shadows and paper grain (`client/shaders/toon.gdshader`), ink outlines with a constant pixel width (`client/shaders/outline.gdshader`), a muted earthy palette and paper-like UI. Materials, labels and the UI theme come from `client/style.gd`.
