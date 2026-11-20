@@ -37,7 +37,7 @@ const LINES := {
 	},
 	"pia": {
 		"morning": ["Guten Morgen! Die Äpfel sind heute ganz frisch.", "Die Bäume tragen nach einer Weile neue Äpfel. Pflück sie nicht ganz leer!"],
-		"day": ["Hast du dein Haus schon eingerichtet? Über „Bauen“ geht das ganz leicht.", "Mit Blumentöpfen sieht alles gleich viel netter aus.", "Hast du die kleinen Wuselwesen gesehen? Die sind so schüchtern!"],
+		"day": ["Hast du dein Haus schon eingerichtet? Über „Bauen“ geht das ganz leicht.", "Mit Blumentöpfen sieht alles gleich viel netter aus.", "Hast du die kleinen Wuselwesen gesehen? Die sind so schüchtern!", "Leg dir doch ein Beet an! Mit einer Schaufel geht das ganz leicht.", "Gieß deine Pflanzen jeden Tag, dann wachsen sie über Nacht ein Stück."],
 		"evening": ["Bei Sonnenuntergang ist die Insel am schönsten.", "Wenn es dunkel wird, leuchten die Lampen so gemütlich."],
 	},
 	"mara": {

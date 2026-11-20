@@ -22,11 +22,16 @@ export type ClientMessage =
   | { t: "pickup"; id: string }
   | { t: "rotate"; id: string }
   | { t: "buy"; item: string }
-  | { t: "sell"; item: string; qty: number };
+  | { t: "sell"; item: string; qty: number }
+  | { t: "ground"; gx: number; gz: number; kind: string }
+  | { t: "sow"; gx: number; gz: number; seed: string }
+  | { t: "water"; gx: number; gz: number }
+  | { t: "harvest"; gx: number; gz: number };
 
 // server -> client
 export type ServerMessage =
-  | { t: "welcome"; you: string; players: Player[]; nodes: WorldNode[]; inv: Inventory; houses: House[]; decor: Decor[]; tz_offset: number }
+  | { t: "welcome"; you: string; players: Player[]; nodes: WorldNode[]; inv: Inventory; houses: House[]; decor: Decor[]; tz_offset: number;
+      ground: [number, number, GroundKind][]; plants: PlantState[] }
   | { t: "inv"; inv: Inventory }
   | { t: "node"; id: string; ready_in: number }
   | { t: "toast"; text: string }
@@ -34,6 +39,8 @@ export type ServerMessage =
   | { t: "decor_add"; d: Decor }
   | { t: "decor_remove"; id: string }
   | { t: "decor_rot"; id: string; rot: number }
+  | { t: "ground_set"; gx: number; gz: number; kind: GroundKind | null }
+  | { t: "plant_set"; gx: number; gz: number; p: PlantState | null }
   | { t: "joined"; p: Player }
   | { t: "left"; id: string }
   | { t: "pos"; id: string; x: number; z: number; ry: number; s?: boolean }
@@ -59,6 +66,9 @@ export interface WorldNode {
 export const ITEMS = [
   "apple", "wood", "stone", "fish", "fishing_rod",
   "fruit_basket", "campfire", "chair", "table", "lamp", "bed", "flower_pot",
+  "shovel", "watering_can", "fence", "potted_tulip", "potted_sunflower",
+  "carrot_seeds", "tomato_seeds", "pumpkin_seeds", "tulip_seeds", "sunflower_seeds",
+  "carrot", "tomato", "pumpkin", "tulip", "sunflower",
 ] as const;
 
 /** German display names, used in server messages. Mirrored in client/defs.gd. */
@@ -75,12 +85,30 @@ export const ITEM_LABELS: Record<string, string> = {
   lamp: "Lampe",
   bed: "Bett",
   flower_pot: "Blumentopf",
+  shovel: "Schaufel",
+  watering_can: "Gießkanne",
+  fence: "Zaun",
+  potted_tulip: "Tulpe im Topf",
+  potted_sunflower: "Sonnenblume im Topf",
+  carrot_seeds: "Karottensamen",
+  tomato_seeds: "Tomatensamen",
+  pumpkin_seeds: "Kürbissamen",
+  tulip_seeds: "Tulpenzwiebeln",
+  sunflower_seeds: "Sonnenblumenkerne",
+  carrot: "Karotte",
+  tomato: "Tomate",
+  pumpkin: "Kürbis",
+  tulip: "Tulpe",
+  sunflower: "Sonnenblume",
 };
 
 export const label = (item: string): string => ITEM_LABELS[item] ?? item;
 
 /** Items that can be placed in the world. */
-export const PLACEABLE: readonly string[] = ["fruit_basket", "campfire", "chair", "table", "lamp", "bed", "flower_pot"];
+export const PLACEABLE: readonly string[] = [
+  "fruit_basket", "campfire", "chair", "table", "lamp", "bed", "flower_pot",
+  "fence", "potted_tulip", "potted_sunflower",
+];
 
 /** recipe name -> cost. Each recipe produces exactly one item with the same name. */
 export const RECIPES: Record<string, Inventory> = {
@@ -92,6 +120,11 @@ export const RECIPES: Record<string, Inventory> = {
   lamp: { wood: 1, stone: 1 },
   bed: { wood: 6 },
   flower_pot: { stone: 2 },
+  shovel: { wood: 2, stone: 1 },
+  watering_can: { stone: 3, wood: 1 },
+  fence: { wood: 1 },
+  potted_tulip: { flower_pot: 1, tulip: 1 },
+  potted_sunflower: { flower_pot: 1, sunflower: 1 },
 };
 
 export const INTERACT_RANGE = 4;
@@ -181,6 +214,21 @@ export const SELL_PRICES: Inventory = {
   lamp: 25,
   bed: 45,
   flower_pot: 25,
+  shovel: 15,
+  watering_can: 20,
+  fence: 5,
+  potted_tulip: 45,
+  potted_sunflower: 50,
+  carrot_seeds: 5,
+  tomato_seeds: 8,
+  pumpkin_seeds: 10,
+  tulip_seeds: 4,
+  sunflower_seeds: 5,
+  carrot: 25,
+  tomato: 20,
+  pumpkin: 90,
+  tulip: 15,
+  sunflower: 20,
 };
 
 /** What the shop sells, and for how much. */
@@ -191,6 +239,13 @@ export const SHOP_CATALOG: Inventory = {
   lamp: 120,
   table: 140,
   bed: 250,
+  shovel: 50,
+  watering_can: 80,
+  carrot_seeds: 20,
+  tomato_seeds: 30,
+  pumpkin_seeds: 40,
+  tulip_seeds: 15,
+  sunflower_seeds: 20,
 };
 
 /** Minutes to add to UTC to get island time, for the given instant (handles daylight saving time). */
@@ -236,3 +291,62 @@ export const PROPS: { kind: string; x: number; z: number; r: number }[] = [
   { kind: "mushroom_house", x: -16.9, z: 17.2, r: 2.2 },
   { kind: "wheelbarrow", x: 22, z: -4.5, r: 1.8 },
 ];
+
+// ---------------------------------------------------------------- landscaping and gardening
+
+/** Ground cells painted by players (1 m grid, island only). "grass" in a request clears a cell. */
+export type GroundKind = "path" | "gravel" | "soil" | "pond";
+export const GROUND_KINDS: readonly string[] = ["path", "gravel", "soil", "pond"];
+/** Items consumed per cell. */
+export const GROUND_COST: Record<string, Inventory> = { path: { stone: 1 } };
+/** Ground kinds (and clearing) that need a shovel. */
+export const GROUND_NEEDS_SHOVEL: readonly string[] = ["soil", "pond", "grass"];
+export const MAX_GROUND_CELLS = 2500;
+export const MAX_PLANTS = 400;
+
+/**
+ * A plant on a soil cell. It grows one stage for each island day it was watered:
+ * at the next day change after watering. Ripe when stage === PLANTS[kind].stages.
+ */
+export interface PlantState {
+  gx: number;
+  gz: number;
+  kind: string;
+  stage: number;
+  stage_day: number; // island day the current stage began
+  watered_day: number; // island day it was last watered (-1 = never)
+}
+
+/** stages: watered days until ripe. regrow: stage after harvest, or null to remove the plant. */
+export const PLANTS: Record<string, { seed: string; stages: number; yield: [string, number]; regrow: number | null }> = {
+  carrot: { seed: "carrot_seeds", stages: 3, yield: ["carrot", 2], regrow: null },
+  tomato: { seed: "tomato_seeds", stages: 3, yield: ["tomato", 3], regrow: 2 },
+  pumpkin: { seed: "pumpkin_seeds", stages: 4, yield: ["pumpkin", 1], regrow: null },
+  tulip: { seed: "tulip_seeds", stages: 2, yield: ["tulip", 1], regrow: 1 },
+  sunflower: { seed: "sunflower_seeds", stages: 3, yield: ["sunflower", 1], regrow: 2 },
+};
+
+export const plantForSeed = (seed: string): string | undefined =>
+  Object.keys(PLANTS).find((k) => PLANTS[k].seed === seed);
+
+/** Days since the epoch, counted in island time. */
+export function islandDay(now: Date = new Date()): number {
+  return Math.floor((Math.floor(now.getTime() / 60000) + islandOffsetMinutes(now)) / 1440);
+}
+
+/** UTC timestamp (ms) of the next island midnight. */
+export function nextIslandMidnight(now: Date = new Date()): number {
+  return ((islandDay(now) + 1) * 1440 - islandOffsetMinutes(now)) * 60000;
+}
+
+/** Applies growth up to `today`. Returns true if the plant changed. */
+export function growPlant(p: PlantState, today: number): boolean {
+  const def = PLANTS[p.kind];
+  if (!def || p.stage >= def.stages) return false;
+  if (p.watered_day >= p.stage_day && p.watered_day < today) {
+    p.stage += 1;
+    p.stage_day = p.watered_day + 1;
+    return true;
+  }
+  return false;
+}

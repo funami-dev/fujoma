@@ -67,6 +67,18 @@ export class Profile extends DurableObject<Env> {
     return this.inventory();
   }
 
+  /** Pays `cost` without granting anything. Returns null if the inventory is short. */
+  pay(cost: Inventory): Inventory | null {
+    const inv = this.inventory();
+    for (const [item, qty] of Object.entries(cost)) {
+      if ((inv[item] ?? 0) < qty) return null;
+    }
+    for (const [item, qty] of Object.entries(cost)) {
+      this.ctx.storage.sql.exec("UPDATE inv SET qty = qty - ? WHERE item = ?", qty, item);
+    }
+    return this.inventory();
+  }
+
   /** Atomically pays `cost` and grants one `output`. Returns null if the inventory is short. */
   craft(output: string, cost: Inventory): Inventory | null {
     const inv = this.inventory();
